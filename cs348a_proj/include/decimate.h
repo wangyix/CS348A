@@ -4,8 +4,6 @@
 
 #include "mesh_definitions.h"
 
-#define EIGEN_DONT_ALIGN
-
 void simplify(Mesh& _mesh, const float _percentage, const std::string _output_filename);
 
 
