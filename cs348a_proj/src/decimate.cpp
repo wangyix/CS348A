@@ -7,7 +7,6 @@
 #include <limits>
 #include <queue>
 
-
 using namespace OpenMesh;
 using namespace Eigen;
 
@@ -103,7 +102,6 @@ void intialize(Mesh& _mesh) {
       q_xyz.normalize();
       double q_w = -v0.dot(q_xyz);
       Vector4d qi(q_xyz.x(), q_xyz.y(), q_xyz.z(), q_w);
-      assert(qi.w() == q_w);
 
       // compute and accumulate Qi
       Matrix4d Qi = qi * qi.transpose();
@@ -246,7 +244,7 @@ void decimate(Mesh& _mesh, const unsigned int _target_num_vertices) {
     // If this halfedge is not a valid collapse, bail.
     if (!is_collapse_valid(_mesh, vp.heh_)) {
       printf("\tHalfedge collapse not valid! Will skip\n");
-      return;
+      continue;
     }
 
     Mesh::VertexHandle vh_s = vp.vh_;

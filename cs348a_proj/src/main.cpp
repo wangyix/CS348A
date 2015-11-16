@@ -48,6 +48,25 @@ void renderMesh() {
   glEnable(GL_NORMALIZE);
 
   // WRITE CODE HERE TO RENDER THE TRIANGLES OF THE MESH ---------------------------------------------------------
+  glColor3f(1, 1, 1);
+  glBegin(GL_TRIANGLES);
+  for (Mesh::ConstFaceIter f_it = mesh.faces_begin(); f_it != mesh.faces_end(); ++f_it) {
+    Mesh::ConstFaceVertexIter cfv_it = mesh.cfv_iter(*f_it);
+    Vec3f points[3];
+    Vec3f normals[3];
+    for (int i = 0; i < 3; i++) {
+      points[i] = mesh.point(*cfv_it);
+      normals[i] = mesh.normal(*cfv_it);
+      ++cfv_it;
+    }
+    glNormal3f(normals[0][0], normals[0][1], normals[0][2]);
+    glVertex3f(points[0][0], points[0][1], points[0][2]);
+    glNormal3f(normals[1][0], normals[1][1], normals[1][2]);
+    glVertex3f(points[1][0], points[1][1], points[1][2]);
+    glNormal3f(normals[2][0], normals[2][1], normals[2][2]);
+    glVertex3f(points[2][0], points[2][1], points[2][2]);
+  }
+  glEnd();
   // -------------------------------------------------------------------------------------------------------------
 
   if (!showSurface) glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
