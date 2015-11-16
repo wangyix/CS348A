@@ -1,6 +1,6 @@
 #include <OpenMesh/Core/IO/Options.hh>
 #include <OpenMesh/Core/IO/MeshIO.hh>
-#include <Eigen/Core>
+#include <Eigen/Dense>
 
 #include "decimate.h"
 #include <iostream>
@@ -81,6 +81,35 @@ void intialize(Mesh& _mesh) {
 
     // INSERT CODE HERE FOR PART 1-------------------------------------------------------------------------------
     // Calculate vertex quadrics from incident triangles
+
+    Matrix4d& Q = vertex_quadric(_mesh, vh);
+
+    // set v0 to current vertex
+    Vec3f v0_temp = _mesh.point(vh);
+    Vector3d v0(v0_temp[0], v0_temp[1], v0_temp[2]);
+
+    // Iterate neighbor vertices
+    for (Mesh::VertexOHalfedgeIter voh_it = _mesh.voh_iter(vh); voh_it; ++voh_it) {
+      // set v1 to the current neighbor
+      Vec3f v1_temp = _mesh.point(_mesh.to_vertex_handle(*voh_it));
+      Vector3d v1(v1_temp[0], v1_temp[1], v1_temp[2]);
+      // set v2 to the next neighbor in CCW order
+      Mesh::HalfedgeHandle voh_next = _mesh.next_halfedge_handle(*voh_it);
+      Vec3f v2_temp = _mesh.point(_mesh.to_vertex_handle(voh_next));
+      Vector3d v2(v2_temp[0], v2_temp[1], v2_temp[2]);
+
+      // compute qi
+      Vector3d q_xyz = (v1 - v0).cross(v2 - v0);
+      q_xyz.normalize();
+      double q_w = -v0.dot(q_xyz);
+      Vector4d qi(q_xyz.x(), q_xyz.y(), q_xyz.z(), q_w);
+      assert(qi.w() == q_w);
+
+      // compute and accumulate Qi
+      Matrix4d Qi = qi * qi.transpose();
+      Q += Qi;
+    }
+
     // ----------------------------------------------------------------------------------------------------------
   }
 
