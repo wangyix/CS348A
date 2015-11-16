@@ -88,7 +88,7 @@ void intialize(Mesh& _mesh) {
     Vector3d v0(v0_temp[0], v0_temp[1], v0_temp[2]);
 
     // Iterate neighbor vertices
-    for (Mesh::VertexOHalfedgeIter voh_it = _mesh.voh_iter(vh); voh_it; ++voh_it) {
+    for (Mesh::ConstVertexOHalfedgeIter voh_it = _mesh.cvoh_iter(vh); voh_it; ++voh_it) {
       // set v1 to the current neighbor
       Vec3f v1_temp = _mesh.point(_mesh.to_vertex_handle(*voh_it));
       Vector3d v1(v1_temp[0], v1_temp[1], v1_temp[2]);
@@ -98,8 +98,7 @@ void intialize(Mesh& _mesh) {
       Vector3d v2(v2_temp[0], v2_temp[1], v2_temp[2]);
 
       // compute qi
-      Vector3d q_xyz = (v1 - v0).cross(v2 - v0);
-      q_xyz.normalize();
+      Vector3d q_xyz = (v1 - v0).cross(v2 - v0).normalized();
       double q_w = -v0.dot(q_xyz);
       Vector4d qi(q_xyz.x(), q_xyz.y(), q_xyz.z(), q_w);
 
@@ -126,7 +125,7 @@ double compute_priority(Mesh& _mesh, const Mesh::HalfedgeHandle _heh) {
   // with vertex s. 
   Vec3f t_temp = _mesh.point(_mesh.to_vertex_handle(_heh));
   Vector4d t(t_temp[0], t_temp[1], t_temp[2], 1.0);
-  Mesh::VertexHandle vh_s = _mesh.to_vertex_handle(_mesh.opposite_halfedge_handle(_heh));
+  Mesh::VertexHandle vh_s = _mesh.from_vertex_handle(_heh);
   priority = t.transpose() * vertex_quadric(_mesh, vh_s) * t;
 
   // -------------------------------------------------------------------------------------------------------------
@@ -232,37 +231,27 @@ void decimate(Mesh& _mesh, const unsigned int _target_num_vertices) {
 
   // INSERT CODE HERE FOR PART 3-----------------------------------------------------------------------------------
   // Decimate using priority queue:
-  int numVerticesRemove = num_vertices - _target_num_vertices;
-  for (int i = 0; i < numVerticesRemove; i++) {
-    // Pop from queue until a vertex with valid priority is reached.  This removes stale
+  int numVerticesToRemove = num_vertices - _target_num_vertices;
+  for (int i = 0; i < numVerticesToRemove; i++) {
+    // Pop from queue until a vertex with valid priority and valid collapse is reached.  This removes stale
     // VertexPriorities from the queue.
     VertexPriority& vp = queue.top();
-    while (!is_vertex_priority_valid(_mesh, vp)) {
+    while (!is_vertex_priority_valid(_mesh, vp) || !is_collapse_valid(_mesh, vp.heh_)) {
       queue.pop();
       vp = queue.top();
     }
-    // If this halfedge is not a valid collapse, bail.
-    if (!is_collapse_valid(_mesh, vp.heh_)) {
-      printf("\tHalfedge collapse not valid! Will skip\n");
-      continue;
-    }
 
-    Mesh::VertexHandle vh_s = vp.vh_;
-    Mesh::VertexHandle vh_t = _mesh.to_vertex_handle(vp.heh_);
-
-    // Record all neighbor vertices of s other than t; these are the vertices whose priorities
+    // Record all neighbor vertices of s; these are the vertices whose priorities
     // need to be updated.
     std::vector<Mesh::VertexHandle> updateVertices;
-    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vh_s); vv_it; ++vv_it) {
-      if (*vv_it != vh_t) {
-        updateVertices.push_back(*vv_it);
-      }
+    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vp.vh_); vv_it; ++vv_it) {
+      updateVertices.push_back(*vv_it);
     }
 
     _mesh.collapse(vp.heh_);
+    queue.pop();
 
     // Recompute priorities for the affected vertices and enqueue their updated priorities.
-    queue.pop();
     for (Mesh::VertexHandle& vh : updateVertices) {
       enqueue_vertex(_mesh, queue, vh);
     }

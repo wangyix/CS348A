@@ -48,9 +48,9 @@ void renderMesh() {
   glEnable(GL_NORMALIZE);
 
   // WRITE CODE HERE TO RENDER THE TRIANGLES OF THE MESH ---------------------------------------------------------
-  glColor3f(1, 1, 1);
   glBegin(GL_TRIANGLES);
-  for (Mesh::ConstFaceIter f_it = mesh.faces_begin(); f_it != mesh.faces_end(); ++f_it) {
+  Mesh::ConstFaceIter f_it, f_it_end = mesh.faces_end();
+  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
     Mesh::ConstFaceVertexIter cfv_it = mesh.cfv_iter(*f_it);
     Vec3f points[3];
     Vec3f normals[3];
@@ -67,6 +67,25 @@ void renderMesh() {
     glVertex3f(points[2][0], points[2][1], points[2][2]);
   }
   glEnd();
+  
+  glDisable(GL_LIGHTING);
+  glColor3f(0, 0, 0);
+  glBegin(GL_LINES);
+  Mesh::ConstHalfedgeIter he_it, he_it_end = mesh.halfedges_end();
+  for (he_it = mesh.halfedges_begin(); he_it != he_it_end; ++he_it) {
+    Mesh::VertexHandle vh_s = mesh.from_vertex_handle(*he_it);
+    Mesh::VertexHandle vh_t = mesh.to_vertex_handle(*he_it);
+    Vec3f s = mesh.point(vh_s);
+    Vec3f t = mesh.point(vh_t);
+    Vec3f sn = mesh.normal(vh_s);
+    Vec3f tn = mesh.normal(vh_t);
+    s += 0.001f * sn;
+    t += 0.001f * tn;
+    glVertex3f(s[0], s[1], s[2]);
+    glVertex3f(t[0], t[1], t[2]);
+  }
+  glEnd();
+  
   // -------------------------------------------------------------------------------------------------------------
 
   if (!showSurface) glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -126,7 +145,7 @@ void display() {
 
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_LIGHTING);
-  glShadeModel(GL_SMOOTH);
+  glShadeModel(GL_FLAT);//GL_SMOOTH);
   glMaterialfv(GL_FRONT, GL_SPECULAR, specular);
   glMaterialfv(GL_FRONT, GL_SHININESS, shininess);
   glEnable(GL_LIGHT0);
@@ -292,7 +311,7 @@ int main(int argc, char** argv) {
 
   Vec3f actualCamPos(cameraPos[0] + pan[0], cameraPos[1] + pan[1], cameraPos[2] + pan[2]);
   computeViewCurvature(mesh, actualCamPos, curvature, viewCurvature, viewCurvatureDerivative);
-
+                                                                                         simplify(mesh, 0.1, "output.off");    // TESTOESTESTSTS!!!!!!!!
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
   glutInitWindowSize(windowWidth, windowHeight);
