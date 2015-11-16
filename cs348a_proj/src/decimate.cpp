@@ -122,6 +122,15 @@ double compute_priority(Mesh& _mesh, const Mesh::HalfedgeHandle _heh) {
   // INSERT CODE HERE FOR PART 2---------------------------------------------------------------------------------
   // Return priority: The smaller the better
   // Use quadrics to estimate approximation error
+
+  // Since we can only collapse to vertex t, the priority depends only on vertex t's quadric error.
+  // Vertex t's quadric error with itself is 0, so the priority only depends on t's quadric error
+  // with vertex s. 
+  Vec3f t_temp = _mesh.point(_mesh.to_vertex_handle(_heh));
+  Vector4d t(t_temp[0], t_temp[1], t_temp[2], 1.0);
+  Mesh::VertexHandle vh_s = _mesh.to_vertex_handle(_mesh.opposite_halfedge_handle(_heh));
+  priority = t.transpose() * vertex_quadric(_mesh, vh_s) * t;
+
   // -------------------------------------------------------------------------------------------------------------
 
   return priority;
