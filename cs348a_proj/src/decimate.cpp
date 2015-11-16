@@ -234,15 +234,41 @@ void decimate(Mesh& _mesh, const unsigned int _target_num_vertices) {
 
   // INSERT CODE HERE FOR PART 3-----------------------------------------------------------------------------------
   // Decimate using priority queue:
-  //
-  // 1) Take first element of queue
-  //  - Check whether the vertex priority is valid using 'is_vertex_priority_valid()'
-  //
-  // 2) Collapse this halfedge
-  //  - Check whether the halfedge collapse is valid using 'is_collapse_valid()'
-  //
-  // 3) Update queue
-  //
+  int numVerticesRemove = num_vertices - _target_num_vertices;
+  for (int i = 0; i < numVerticesRemove; i++) {
+    // Pop from queue until a vertex with valid priority is reached.  This removes stale
+    // VertexPriorities from the queue.
+    VertexPriority& vp = queue.top();
+    while (!is_vertex_priority_valid(_mesh, vp)) {
+      queue.pop();
+      vp = queue.top();
+    }
+    // If this halfedge is not a valid collapse, bail.
+    if (!is_collapse_valid(_mesh, vp.heh_)) {
+      printf("\tHalfedge collapse not valid! Will skip\n");
+      return;
+    }
+
+    Mesh::VertexHandle vh_s = vp.vh_;
+    Mesh::VertexHandle vh_t = _mesh.to_vertex_handle(vp.heh_);
+
+    // Record all neighbor vertices of s other than t; these are the vertices whose priorities
+    // need to be updated.
+    std::vector<Mesh::VertexHandle> updateVertices;
+    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vh_s); vv_it; ++vv_it) {
+      if (*vv_it != vh_t) {
+        updateVertices.push_back(*vv_it);
+      }
+    }
+
+    _mesh.collapse(vp.heh_);
+
+    // Recompute priorities for the affected vertices and enqueue their updated priorities.
+    queue.pop();
+    for (Mesh::VertexHandle& vh : updateVertices) {
+      enqueue_vertex(_mesh, queue, vh);
+    }
+  }
   // --------------------------------------------------------------------------------------------------------------
 
   // Delete the items marked to be deleted
