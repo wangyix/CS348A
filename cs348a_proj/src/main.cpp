@@ -35,6 +35,69 @@ void renderSuggestiveContours(Vec3f actualCamPos) { // use this camera position 
   glColor3f(0.5, 0.5, 0.5);
 
   // RENDER SUGGESTIVE CONTOURS HERE -----------------------------------------------------------------------------
+  //glColor3f(1, 0, 0);
+  glBegin(GL_LINES);
+  Mesh::ConstFaceIter f_it, f_it_end = mesh.faces_end();
+  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
+    Mesh::FaceHandle fh = *f_it;
+    Vec3f toCamera = actualCamPos - mesh.calc_face_centroid(fh);
+    Vec3f toCameraDir = toCamera.normalized();
+    Vec3f n = mesh.calc_face_normal(fh);
+    if ((n | toCameraDir) > 0.8f) {
+      // angle between face normal and is small; bail.
+      continue;
+    }
+    Vec3f wGradient = mesh.property(viewCurvatureDerivative, fh);
+    if ((wGradient | toCameraDir) <= 0.001) {
+      // Dwkw is negative or too small of a positive; bail.
+      continue;
+    }
+    
+    Mesh::VertexHandle vh[3];
+    double kw[3];
+    int numKwPositive = 0, posKwIndex = -1, negKwIndex = -1;
+    {
+      int i = 0;
+      Mesh::FaceVertexCCWIter fv_it, fv_it_end = mesh.fv_ccwend(fh);
+      for (fv_it = mesh.fv_ccwbegin(fh); fv_it != fv_it_end; ++fv_it) {
+        vh[i] = *fv_it;
+        kw[i] = mesh.property(viewCurvature, *fv_it);
+        if (kw[i] > 0.0) {
+          numKwPositive++;
+          posKwIndex = i;
+        } else {
+          negKwIndex = i;
+        }
+        i++;
+      }
+      assert(i == 3);
+    }
+    if (numKwPositive == 0 || numKwPositive == 3) {
+      // face does not have kw zero-crossing; bail.
+      continue;
+    }
+
+    // assign v0 to be the odd-man-out vertex, and v1,v2 to be the other two vertices
+    int i0 = (numKwPositive == 1) ? posKwIndex : negKwIndex;
+    assert(0 <= i && i < 3);
+    int i1 = (i0 == 0) ? 1 : 0;
+    int i2 = (i0 == 2) ? 1 : 2;
+    Vec3f v0 = mesh.point(vh[i0]);
+    Vec3f v1 = mesh.point(vh[i1]);
+    Vec3f v2 = mesh.point(vh[i2]);
+    double kw0 = kw[i0];
+    double kw1 = kw[i1];
+    double kw2 = kw[i2];
+    // compute the two edge points where kw = 0
+    double a1 = kw0 / (kw0 - kw1);
+    Vec3f p1 = (1.0 - a1)*v0 + a1*v1;
+    double a2 = kw0 / (kw0 - kw2);
+    Vec3f p2 = (1.0 - a2)*v0 + a2*v2;
+
+    glVertex3f(p1[0], p1[1], p1[2]);
+    glVertex3f(p2[0], p2[1], p2[2]);
+  }
+  glEnd();
   // -------------------------------------------------------------------------------------------------------------
 }
 
