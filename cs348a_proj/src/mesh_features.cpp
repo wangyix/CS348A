@@ -24,8 +24,11 @@ bool isSilhouette(Mesh &mesh, const Mesh::EdgeHandle &e, Vec3f cameraPos)  {
 
 bool isSharpEdge(Mesh &mesh, const Mesh::EdgeHandle &e) {
   // CHECK IF e IS SHARP HERE ------------------------------------------------------------------------------------
+  Mesh::HalfedgeHandle heh = mesh.halfedge_handle(e, 0);
+  Vec3f n0 = mesh.calc_face_normal(mesh.face_handle(heh));
+  Vec3f n1 = mesh.calc_face_normal(mesh.opposite_face_handle(heh));
+  return (n0 | n1) < 0.5f;
   // -------------------------------------------------------------------------------------------------------------
-  return false;
 }
 
 bool isFeatureEdge(Mesh &mesh, const Mesh::EdgeHandle &e, Vec3f cameraPos) {
