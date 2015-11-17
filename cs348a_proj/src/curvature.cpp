@@ -88,6 +88,18 @@ void computeViewCurvature(Mesh& mesh, OpenMesh::Vec3f camPos, OpenMesh::VPropHan
   OpenMesh::VPropHandleT<double>& viewCurvature, OpenMesh::FPropHandleT<OpenMesh::Vec3f>& viewCurvatureDerivative) {
   // WRITE CODE HERE TO COMPUTE CURVATURE IN THE VIEW PROJECTION PROJECTED ON THE TANGENT PLANE ------------------
   // Compute vector to viewer and project onto tangent plane, then use components in principal directions to find curvature
+  Mesh::VertexIter v_it, v_it_end = mesh.vertices_end();
+  for (v_it = mesh.vertices_begin(); v_it != v_it_end; ++v_it) {
+    Mesh::VertexHandle vh = *v_it;
+    Vec3f toCamera = camPos - mesh.point(vh);
+    Vec3f n = mesh.normal(vh);
+    Vec3f w = (toCamera - (toCamera | n)*n).normalized();
+    
+    CurvatureInfo info = mesh.property(curvature, vh);
+    float cosTheta = w | info.directions[0];
+    float cosThetaSq = cosTheta * cosTheta;
+    mesh.property(viewCurvature, vh) = cosThetaSq * info.curvatures[0] + (1.f - cosThetaSq) * info.curvatures[1];
+  }
   // -------------------------------------------------------------------------------------------------------------
 
   // We'll use the finite elements piecewise hat method to find per-face gradients of the view curvature
