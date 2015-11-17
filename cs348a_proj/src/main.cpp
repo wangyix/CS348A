@@ -40,18 +40,6 @@ void renderSuggestiveContours(Vec3f actualCamPos) { // use this camera position 
   Mesh::ConstFaceIter f_it, f_it_end = mesh.faces_end();
   for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
     Mesh::FaceHandle fh = *f_it;
-    Vec3f toCamera = actualCamPos - mesh.calc_face_centroid(fh);
-    Vec3f toCameraDir = toCamera.normalized();
-    Vec3f n = mesh.calc_face_normal(fh);
-    if ((n | toCameraDir) > 0.8f) {
-      // angle between face normal and is small; bail.
-      continue;
-    }
-    Vec3f wGradient = mesh.property(viewCurvatureDerivative, fh);
-    if ((wGradient | toCameraDir) <= 0.001) {
-      // Dwkw is negative or too small of a positive; bail.
-      continue;
-    }
     
     Mesh::VertexHandle vh[3];
     double kw[3];
@@ -79,7 +67,7 @@ void renderSuggestiveContours(Vec3f actualCamPos) { // use this camera position 
 
     // assign v0 to be the odd-man-out vertex, and v1,v2 to be the other two vertices
     int i0 = (numKwPositive == 1) ? posKwIndex : negKwIndex;
-    assert(0 <= i && i < 3);
+    assert(0 <= i0 && i0 < 3);
     int i1 = (i0 == 0) ? 1 : 0;
     int i2 = (i0 == 2) ? 1 : 2;
     Vec3f v0 = mesh.point(vh[i0]);
@@ -93,6 +81,19 @@ void renderSuggestiveContours(Vec3f actualCamPos) { // use this camera position 
     Vec3f p1 = (1.0 - a1)*v0 + a1*v1;
     double a2 = kw0 / (kw0 - kw2);
     Vec3f p2 = (1.0 - a2)*v0 + a2*v2;
+
+    Vec3f toCamera = actualCamPos - 0.5f*(p1 + p2);   // v
+    Vec3f n = mesh.calc_face_normal(fh);
+    if ((n | toCamera.normalized()) > 0.8f) {
+      // angle between face normal and is small; bail.
+      continue;
+    }
+    Vec3f w = toCamera - (toCamera | n)*n;    // w is v projected onto tangent plane
+    Vec3f kwGradient = mesh.property(viewCurvatureDerivative, fh);
+    if ((kwGradient | w.normalized()) <= 0.001) {
+      // Dwkr is negative or too small of a positive; bail.
+      continue;
+    }
 
     glVertex3f(p1[0], p1[1], p1[2]);
     glVertex3f(p2[0], p2[1], p2[2]);
