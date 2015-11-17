@@ -261,6 +261,10 @@ void decimate(Mesh& _mesh, const unsigned int _target_num_vertices) {
     for (Mesh::VertexHandle& vh : updateVertices) {
       enqueue_vertex(_mesh, queue, vh);
     }
+    /*enqueue_vertex(_mesh, queue, vh_t);
+    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vh_t); vv_it; ++vv_it) {
+      enqueue_vertex(_mesh, queue, *vv_it);
+    }*/
   }
   // --------------------------------------------------------------------------------------------------------------
 
