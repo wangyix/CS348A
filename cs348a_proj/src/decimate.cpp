@@ -241,12 +241,18 @@ void decimate(Mesh& _mesh, const unsigned int _target_num_vertices) {
       vp = queue.top();
     }
 
+    Mesh::VertexHandle vh_s = vp.vh_;
+    Mesh::VertexHandle vh_t = _mesh.to_vertex_handle(vp.heh_);
+
     // Record all neighbor vertices of s; these are the vertices whose priorities
     // need to be updated.
     std::vector<Mesh::VertexHandle> updateVertices;
-    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vp.vh_); vv_it; ++vv_it) {
+    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vh_s); vv_it; ++vv_it) {
       updateVertices.push_back(*vv_it);
     }
+
+    // Update vertex t's Q matrix
+    vertex_quadric(_mesh, vh_t) += vertex_quadric(_mesh, vh_s);
 
     _mesh.collapse(vp.heh_);
     queue.pop();
