@@ -26,7 +26,7 @@ int lastPos[2];
 float cameraPos[4] = { 0, 0, 4, 1 };
 Vec3f up, pan;
 int windowWidth = 640, windowHeight = 480;
-bool showSurface = true, showAxes = true, showCurvature = false, showNormals = false, showEdges = true;
+bool showSurface = true, showAxes = true, showCurvature = false, showNormals = false, showEdges = false;
 
 float specular[] = { 1.0, 1.0, 1.0, 1.0 };
 float shininess[] = { 50.0 };
@@ -101,7 +101,7 @@ void renderMesh() {
     Mesh::VertexIter v_it, v_it_end = mesh.vertices_end();
     for (v_it = mesh.vertices_begin(); v_it != v_it_end; ++v_it) {
       CurvatureInfo info;
-      info = mesh.property(curvature, v_it);
+      info = mesh.property(curvature, *v_it);
       const Vec3f p = mesh.point(*v_it);
       const Vec3f pT1 = p + 0.02 * info.directions[0];
       const Vec3f pT2 = p + 0.02 * info.directions[1];
@@ -131,10 +131,11 @@ void renderMesh() {
   if (showEdges) {
     glBegin(GL_LINES);
     glColor3f(0, 0, 0);
-    Mesh::ConstHalfedgeIter he_it, he_it_end = mesh.halfedges_end();
-    for (he_it = mesh.halfedges_begin(); he_it != he_it_end; ++he_it) {
-      Mesh::VertexHandle vh_s = mesh.from_vertex_handle(*he_it);
-      Mesh::VertexHandle vh_t = mesh.to_vertex_handle(*he_it);
+    Mesh::ConstEdgeIter e_it, e_it_end = mesh.edges_end();
+    for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
+      Mesh::HalfedgeHandle heh = mesh.halfedge_handle(*e_it, 0);
+      Mesh::VertexHandle vh_s = mesh.from_vertex_handle(heh);
+      Mesh::VertexHandle vh_t = mesh.to_vertex_handle(heh);
       Vec3f s = mesh.point(vh_s);
       Vec3f t = mesh.point(vh_t);
       Vec3f sn = mesh.normal(vh_s);
