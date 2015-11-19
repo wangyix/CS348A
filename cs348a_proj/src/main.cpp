@@ -404,6 +404,10 @@ int main(int argc, char** argv) {
   glutReshapeFunc(reshape);
   glutKeyboardFunc(keyboard);
 
+  GLint depth;
+  glGetIntegerv(GL_DEPTH_BITS, &depth);
+  printf("%d bits in depth buffer\n", depth);
+
   glutMainLoop();
 
   return 0;
