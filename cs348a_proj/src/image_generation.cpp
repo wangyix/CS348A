@@ -2,9 +2,10 @@
 #include "mesh_features.h"
 #include <GL/glut.h>
 #include <fstream>
-#include <set>
-#include <map>
-#include <list>
+//#include <set>
+//#include <map>
+//#include <list>
+#include <deque>
 
 using namespace OpenMesh;
 using namespace std;
@@ -99,7 +100,8 @@ bool isEdgePartialVisible(const Vec3f& s, const Vec3f& t, const GLfloat* depthBu
 }
 
 
-void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos) {
+void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos,
+                EPropHandleT<void*>& edgeData) {
   // copy entire depth buffer
   vector<GLfloat> depthBuffer(width * height);
   glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, &depthBuffer[0]);
@@ -109,7 +111,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
   outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">\n";
   outfile << "<g stroke=\"black\" fill=\"black\">\n";
 
-  // Sample code for generating image of the entire triangle mesh:
+  /*// Sample code for generating image of the entire triangle mesh:
   for (Mesh::ConstEdgeIter it = mesh.edges_begin(); it != mesh.edges_end(); ++it) {
     Mesh::HalfedgeHandle h0 = mesh.halfedge_handle(it,0);
     Mesh::HalfedgeHandle h1 = mesh.halfedge_handle(it,1);
@@ -127,7 +129,134 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
     outfile << "y1=\"" << height-p1[1] << "\" ";
     outfile << "x2=\"" << p2[0] << "\" ";
     outfile << "y2=\"" << height-p2[1] << "\" stroke-width=\"1\" />\n";
+  }*/
+
+  struct SilhouetteLink {
+    deque<Mesh::HalfedgeHandle> halfEdges;  // halfedges oriented and ordered from start to end
+    Mesh::VertexHandle start, end;
+  };
+
+  vector<SilhouetteLink> silhouetteLinks;
+  Mesh::EdgeIter e_it, e_it_end = mesh.edges_end();
+  for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
+    Mesh::EdgeHandle eh = *e_it;
+    if (!isSilhouette(mesh, eh, camPos)) {
+      continue;
     }
+    Mesh::HalfedgeHandle heh = mesh.halfedge_handle(eh, 0);
+    Mesh::VertexHandle s = mesh.from_vertex_handle(heh);
+    Mesh::VertexHandle t = mesh.to_vertex_handle(heh);
+
+    SilhouetteLink* firstAttachedLink = NULL;    // This will be updated to the first link the edge is attached to (if any)
+    Mesh::VertexHandle unattachedVertex;  // This will be updated to the unattached vertex of the edge after the edge is first attached to a link (if any)
+    bool unattachedIsStart = false;       // This will be updated at the same time as unattachedVertex; will indicate if unattachedVertex is the start or end of the link the edge attached to.
+    
+    auto links_it = silhouetteLinks.begin();
+    while(links_it != silhouetteLinks.end()) {
+      SilhouetteLink& link = *links_it;
+      if (link.start == link.end) {   // skip any links that are loops
+        continue;
+      }
+      // It's possible that s=start and t=end, or s=end and t=start.  In those cases, the edge will
+      // be attached at s, and no further action is required.
+      if (s == link.start) {
+        link.halfEdges.push_front(mesh.opposite_halfedge_handle(heh));
+        link.start = t;
+        unattachedVertex = t;
+        unattachedIsStart = true;
+        firstAttachedLink = &link;
+        break;
+      } else if (s == link.end) {
+        link.halfEdges.push_back(heh);
+        link.end = t;
+        unattachedVertex = t;
+        unattachedIsStart = false;
+        firstAttachedLink = &link;
+        break;
+      } else if (t == link.start) {
+        link.halfEdges.push_front(heh);
+        link.start = s;
+        unattachedVertex = s;
+        unattachedIsStart = true;
+        firstAttachedLink = &link;
+        break;
+      } else if (t == link.end) {
+        link.halfEdges.push_back(mesh.opposite_halfedge_handle(heh));
+        link.end = s;
+        unattachedVertex = s;
+        unattachedIsStart = false;
+        firstAttachedLink = &link;
+        break;
+      }
+      ++links_it;
+    }
+    ++links_it;
+
+    // At this point, if i < silhouetteLinks.size(), then the edge has been attached to a link.  We'll
+    // now check if the unattached end of the edge connects to any of the remaining links.
+    while (links_it != silhouetteLinks.end()) {
+      SilhouetteLink& link = *links_it;
+      if (link.start == link.end) {   // skip any links that are loops
+        continue;
+      }
+      if (unattachedVertex == link.start) {
+        if (unattachedIsStart) {
+          // firstAttachedLink <-<-<- unattachedVertex ->->->-> link
+          for (int i = 0; i < link.halfEdges.size(); i++) {
+            Mesh::HalfedgeHandle& link_heh = link.halfEdges[i];
+            mesh.property(edgeData, mesh.edge_handle(link_heh)) = reinterpret_cast<void*>(firstAttachedLink);
+            firstAttachedLink->halfEdges.push_front(mesh.opposite_halfedge_handle(link_heh));
+          }
+          firstAttachedLink->start = link.end;
+          silhouetteLinks.erase(links_it);
+        } else {
+          // firstAttachedLink ->->-> unattachedVertex ->->->-> link
+          for (int i = 0; i < link.halfEdges.size(); i++) {
+            Mesh::HalfedgeHandle& link_heh = link.halfEdges[i];
+            mesh.property(edgeData, mesh.edge_handle(link_heh)) = reinterpret_cast<void*>(firstAttachedLink);
+            firstAttachedLink->halfEdges.push_back(link_heh);
+          }
+          firstAttachedLink->end = link.end;
+          silhouetteLinks.erase(links_it);
+        }
+      } else if (unattachedVertex == link.end) {
+        if (unattachedIsStart) {
+          // firstAttachedLink <-<-<- unattachedVertex <-<-<-<- link
+          for (int i = link.halfEdges.size() - 1; i >= 0; i--) {
+            Mesh::HalfedgeHandle& link_heh = link.halfEdges[i];
+            mesh.property(edgeData, mesh.edge_handle(link_heh)) = reinterpret_cast<void*>(firstAttachedLink);
+            firstAttachedLink->halfEdges.push_front(link_heh);
+          }
+          firstAttachedLink->start = link.start;
+          silhouetteLinks.erase(links_it);
+        } else {
+          // firstAttachedLink ->->-> unattachedVertex <-<-<-<- link
+          for (int i = link.halfEdges.size() - 1; i >= 0; i--) {
+            Mesh::HalfedgeHandle& link_heh = link.halfEdges[i];
+            mesh.property(edgeData, mesh.edge_handle(link_heh)) = reinterpret_cast<void*>(firstAttachedLink);
+            firstAttachedLink->halfEdges.push_back(mesh.opposite_halfedge_handle(link_heh));
+          }
+          firstAttachedLink->end = link.start;
+          silhouetteLinks.erase(links_it);
+        }
+      }
+      else {
+        ++links_it;
+      }
+    }
+
+    // if this edge doesn't touch any existing link, create a new link from it
+    if (firstAttachedLink == NULL) {
+      silhouetteLinks.push_back(SilhouetteLink());
+      SilhouetteLink& newLink = silhouetteLinks.back();
+      newLink.halfEdges.push_back(heh);
+      newLink.start = s;
+      newLink.end = t;
+      firstAttachedLink = &newLink;
+    }
+
+    mesh.property(edgeData, eh) = reinterpret_cast<void*>(firstAttachedLink);
+  }
 
   // WRITE CODE HERE TO GENERATE A .SVG OF THE MESH --------------------------------------------------------------
 
@@ -135,5 +264,5 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
 
   outfile << "</g>\n";
   outfile << "</svg>\n";
-
+  outfile.close();
 }

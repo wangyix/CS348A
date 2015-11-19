@@ -18,6 +18,7 @@ using namespace Eigen;
 VPropHandleT<double> viewCurvature;
 FPropHandleT<Vec3f> viewCurvatureDerivative;
 VPropHandleT<CurvatureInfo> curvature;
+EPropHandleT<void*> edgeData;
 Mesh mesh;
 
 
@@ -27,6 +28,7 @@ float cameraPos[4] = { 0, 0, 4, 1 };
 Vec3f up, pan;
 int windowWidth = 640, windowHeight = 480;
 bool showSurface = true, showAxes = true, showCurvature = false, showNormals = false, showEdges = false;
+float nDotViewMax = 0.6f, DwkrMin = 1.f;
 
 float specular[] = { 1.0, 1.0, 1.0, 1.0 };
 float shininess[] = { 50.0 };
@@ -39,64 +41,11 @@ void renderSuggestiveContours(Vec3f actualCamPos) { // use this camera position 
   glBegin(GL_LINES);
   Mesh::ConstFaceIter f_it, f_it_end = mesh.faces_end();
   for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
-    Mesh::FaceHandle fh = *f_it;
-    
-    Mesh::VertexHandle vh[3];
-    double kw[3];
-    int numKwPositive = 0, posKwIndex = -1, negKwIndex = -1;
-    {
-      int i = 0;
-      Mesh::FaceVertexCCWIter fv_it, fv_it_end = mesh.fv_ccwend(fh);
-      for (fv_it = mesh.fv_ccwbegin(fh); fv_it != fv_it_end; ++fv_it) {
-        vh[i] = *fv_it;
-        kw[i] = mesh.property(viewCurvature, *fv_it);
-        if (kw[i] > 0.0) {
-          numKwPositive++;
-          posKwIndex = i;
-        } else {
-          negKwIndex = i;
-        }
-        i++;
-      }
-      assert(i == 3);
+    Vec3f p1, p2;
+    if (isSuggestiveContourFace(mesh, *f_it, actualCamPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin, &p1, &p2)) {
+      glVertex3f(p1[0], p1[1], p1[2]);
+      glVertex3f(p2[0], p2[1], p2[2]);
     }
-    if (numKwPositive == 0 || numKwPositive == 3) {
-      // face does not have kw zero-crossing; bail.
-      continue;
-    }
-
-    // assign v0 to be the odd-man-out vertex, and v1,v2 to be the other two vertices
-    int i0 = (numKwPositive == 1) ? posKwIndex : negKwIndex;
-    assert(0 <= i0 && i0 < 3);
-    int i1 = (i0 == 0) ? 1 : 0;
-    int i2 = (i0 == 2) ? 1 : 2;
-    Vec3f v0 = mesh.point(vh[i0]);
-    Vec3f v1 = mesh.point(vh[i1]);
-    Vec3f v2 = mesh.point(vh[i2]);
-    double kw0 = kw[i0];
-    double kw1 = kw[i1];
-    double kw2 = kw[i2];
-    // compute the two edge points where kw = 0
-    double a1 = kw0 / (kw0 - kw1);
-    Vec3f p1 = (1.0 - a1)*v0 + a1*v1;
-    double a2 = kw0 / (kw0 - kw2);
-    Vec3f p2 = (1.0 - a2)*v0 + a2*v2;
-
-    Vec3f toCamera = actualCamPos - 0.5f*(p1 + p2);   // v
-    Vec3f n = mesh.calc_face_normal(fh);
-    if ((n | toCamera.normalized()) > 0.8f) {
-      // angle between face normal and is small; bail.
-      continue;
-    }
-    Vec3f w = toCamera - (toCamera | n)*n;    // w is v projected onto tangent plane
-    Vec3f kwGradient = mesh.property(viewCurvatureDerivative, fh);
-    if ((kwGradient | w.normalized()) <= 0.001) {
-      // Dwkr is negative or too small of a positive; bail.
-      continue;
-    }
-
-    glVertex3f(p1[0], p1[1], p1[2]);
-    glVertex3f(p2[0], p2[1], p2[2]);
   }
   glEnd();
   // -------------------------------------------------------------------------------------------------------------
@@ -315,6 +264,19 @@ void keyboard(unsigned char key, int x, int y) {
   else if (key == 'c' || key == 'C') showCurvature = !showCurvature;
   else if (key == 'n' || key == 'N') showNormals = !showNormals;
   else if (key == 'e' || key == 'E') showEdges = !showEdges;
+  else if (key == '1') {
+    nDotViewMax -= 0.01f;
+    printf("nDotViewMax = %f\n", nDotViewMax);
+  } else if (key == '2') {
+    nDotViewMax += 0.01f;
+    printf("nDotViewMax = %f\n", nDotViewMax);
+  } else if (key == '3') {
+    DwkrMin /= 1.05f;
+    printf("DwkrMin = %f\n", DwkrMin);
+  } else if (key == '4') {
+    DwkrMin *= 1.05f;
+    printf("DwkrMin = %f\n", DwkrMin);
+  }
   else if (key == 'd' || key == 'D') {
     float percentage = 1.0f;
     while (percentage <= 0.0f || percentage >= 1.0f) {
@@ -324,7 +286,7 @@ void keyboard(unsigned char key, int x, int y) {
     simplify(mesh, percentage, "output.off");
   }
   else if (key == 'w' || key == 'W') {
-    writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos);
+    writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos, edgeData);
   }
   else if (key == 'q' || key == 'Q') exit(0);
   glutPostRedisplay();
@@ -365,6 +327,7 @@ int main(int argc, char** argv) {
   mesh.add_property(viewCurvature);
   mesh.add_property(viewCurvatureDerivative);
   mesh.add_property(curvature);
+  mesh.add_property(edgeData);
 
   // Move center of mass to origin
   Vec3f center(0, 0, 0);
