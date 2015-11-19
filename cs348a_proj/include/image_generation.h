@@ -4,8 +4,7 @@
 #include "mesh_definitions.h"
 #include <string>
 
-bool isVisible(OpenMesh::Vec3f point);
-void writeImage(Mesh &mesh, int width, int height, std::string filename, OpenMesh::Vec3f camPos,
-                OpenMesh::EPropHandleT<void*>& edgeData);
+//bool isVisible(OpenMesh::Vec3f point);
+void writeImage(Mesh &mesh, int width, int height, std::string filename, OpenMesh::Vec3f camPos);
 
 #endif

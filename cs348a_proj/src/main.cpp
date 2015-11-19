@@ -18,7 +18,6 @@ using namespace Eigen;
 VPropHandleT<double> viewCurvature;
 FPropHandleT<Vec3f> viewCurvatureDerivative;
 VPropHandleT<CurvatureInfo> curvature;
-EPropHandleT<void*> edgeData;
 Mesh mesh;
 
 
@@ -286,7 +285,7 @@ void keyboard(unsigned char key, int x, int y) {
     simplify(mesh, percentage, "output.off");
   }
   else if (key == 'w' || key == 'W') {
-    writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos, edgeData);
+    writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos);
   }
   else if (key == 'q' || key == 'Q') exit(0);
   glutPostRedisplay();
@@ -327,7 +326,6 @@ int main(int argc, char** argv) {
   mesh.add_property(viewCurvature);
   mesh.add_property(viewCurvatureDerivative);
   mesh.add_property(curvature);
-  mesh.add_property(edgeData);
 
   // Move center of mass to origin
   Vec3f center(0, 0, 0);
