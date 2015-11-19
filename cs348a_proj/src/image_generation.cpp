@@ -106,30 +106,6 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
   vector<GLfloat> depthBuffer(width * height);
   glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, &depthBuffer[0]);
 
-  ofstream outfile(filename.c_str());
-  outfile << "<?xml version=\"1.0\" standalone=\"no\"?>\n";
-  outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">\n";
-  outfile << "<g stroke=\"black\" fill=\"black\">\n";
-
-  /*// Sample code for generating image of the entire triangle mesh:
-  for (Mesh::ConstEdgeIter it = mesh.edges_begin(); it != mesh.edges_end(); ++it) {
-    Mesh::HalfedgeHandle h0 = mesh.halfedge_handle(it,0);
-    Mesh::HalfedgeHandle h1 = mesh.halfedge_handle(it,1);
-    Vec3f source(mesh.point(mesh.from_vertex_handle(h0)));
-    Vec3f target(mesh.point(mesh.from_vertex_handle(h1)));
-
-    //if (!isVisible(source, &depthBuffer[0], width) || !isVisible(target, &depthBuffer[0], width)) continue;
-    Vec3f source_vis, target_vis;
-    if (!isEdgePartialVisible(source, target, &depthBuffer[0], width, &source_vis, &target_vis)) continue;
-
-    Vec3f p1 = toImagePlane(source_vis);
-    Vec3f p2 = toImagePlane(target_vis);
-    outfile << "<line ";
-    outfile << "x1=\"" << p1[0] << "\" ";
-    outfile << "y1=\"" << height-p1[1] << "\" ";
-    outfile << "x2=\"" << p2[0] << "\" ";
-    outfile << "y2=\"" << height-p2[1] << "\" stroke-width=\"1\" />\n";
-  }*/
 
   struct SilhouetteLink {
     deque<Mesh::HalfedgeHandle> halfEdges;  // halfedges oriented and ordered from start to end
@@ -155,6 +131,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
     while(links_it != silhouetteLinks.end()) {
       SilhouetteLink& link = *links_it;
       if (link.start == link.end) {   // skip any links that are loops
+        ++links_it;
         continue;
       }
       // It's possible that s=start and t=end, or s=end and t=start.  In those cases, the edge will
@@ -165,6 +142,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
         unattachedVertex = t;
         unattachedIsStart = true;
         firstAttachedLink = &link;
+        ++links_it;
         break;
       } else if (s == link.end) {
         link.halfEdges.push_back(heh);
@@ -172,6 +150,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
         unattachedVertex = t;
         unattachedIsStart = false;
         firstAttachedLink = &link;
+        ++links_it;
         break;
       } else if (t == link.start) {
         link.halfEdges.push_front(heh);
@@ -179,6 +158,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
         unattachedVertex = s;
         unattachedIsStart = true;
         firstAttachedLink = &link;
+        ++links_it;
         break;
       } else if (t == link.end) {
         link.halfEdges.push_back(mesh.opposite_halfedge_handle(heh));
@@ -186,17 +166,19 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
         unattachedVertex = s;
         unattachedIsStart = false;
         firstAttachedLink = &link;
+        ++links_it;
         break;
       }
       ++links_it;
     }
-    ++links_it;
+    
 
     // At this point, if i < silhouetteLinks.size(), then the edge has been attached to a link.  We'll
     // now check if the unattached end of the edge connects to any of the remaining links.
     while (links_it != silhouetteLinks.end()) {
       SilhouetteLink& link = *links_it;
       if (link.start == link.end) {   // skip any links that are loops
+        ++links_it;
         continue;
       }
       if (unattachedVertex == link.start) {
@@ -208,7 +190,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             firstAttachedLink->halfEdges.push_front(mesh.opposite_halfedge_handle(link_heh));
           }
           firstAttachedLink->start = link.end;
-          silhouetteLinks.erase(links_it);
+          links_it = silhouetteLinks.erase(links_it);
         } else {
           // firstAttachedLink ->->-> unattachedVertex ->->->-> link
           for (int i = 0; i < link.halfEdges.size(); i++) {
@@ -217,7 +199,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             firstAttachedLink->halfEdges.push_back(link_heh);
           }
           firstAttachedLink->end = link.end;
-          silhouetteLinks.erase(links_it);
+          links_it = silhouetteLinks.erase(links_it);
         }
       } else if (unattachedVertex == link.end) {
         if (unattachedIsStart) {
@@ -228,7 +210,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             firstAttachedLink->halfEdges.push_front(link_heh);
           }
           firstAttachedLink->start = link.start;
-          silhouetteLinks.erase(links_it);
+          links_it = silhouetteLinks.erase(links_it);
         } else {
           // firstAttachedLink ->->-> unattachedVertex <-<-<-<- link
           for (int i = link.halfEdges.size() - 1; i >= 0; i--) {
@@ -237,10 +219,9 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             firstAttachedLink->halfEdges.push_back(mesh.opposite_halfedge_handle(link_heh));
           }
           firstAttachedLink->end = link.start;
-          silhouetteLinks.erase(links_it);
+          links_it = silhouetteLinks.erase(links_it);
         }
-      }
-      else {
+      } else {
         ++links_it;
       }
     }
@@ -258,11 +239,59 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
     mesh.property(edgeData, eh) = reinterpret_cast<void*>(firstAttachedLink);
   }
 
-  // WRITE CODE HERE TO GENERATE A .SVG OF THE MESH --------------------------------------------------------------
 
-  // -------------------------------------------------------------------------------------------------------------
+  // sanity check!!!
+  for (SilhouetteLink& link : silhouetteLinks) {
+    Mesh::VertexHandle prevT = link.start;
+    for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
+      assert(prevT == mesh.from_vertex_handle(heh));
+      prevT = mesh.to_vertex_handle(heh);
+    }
+    assert(prevT == link.end);
+  }
 
-  outfile << "</g>\n";
+  ofstream outfile(filename.c_str());
+  outfile << "<?xml version=\"1.0\" standalone=\"no\"?>\n";
+  outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">\n";
+
+  string strokeStrings[4] = { "<g stroke=\"black\" fill=\"black\">\n",
+                              "<g stroke=\"red\" fill=\"black\">\n",
+                              "<g stroke=\"blue\" fill=\"black\">\n",
+                              "<g stroke=\"magenta\" fill=\"black\">\n" };
+
+  for (int i = 0; i < silhouetteLinks.size(); i++) {
+    SilhouetteLink& link = silhouetteLinks[i];
+
+    outfile << strokeStrings[i % 4];
+
+    // Sample code for generating image of the entire triangle mesh:
+    /*for (Mesh::ConstEdgeIter it = mesh.edges_begin(); it != mesh.edges_end(); ++it) {
+      Mesh::HalfedgeHandle h0 = mesh.halfedge_handle(it, 0);
+      Mesh::HalfedgeHandle h1 = mesh.halfedge_handle(it, 1);
+      Vec3f source(mesh.point(mesh.from_vertex_handle(h0)));
+      Vec3f target(mesh.point(mesh.from_vertex_handle(h1)));*/
+
+    for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
+      Vec3f source = mesh.point(mesh.from_vertex_handle(heh));
+      Vec3f target = mesh.point(mesh.to_vertex_handle(heh));
+
+      //if (!isVisible(source, &depthBuffer[0], width) || !isVisible(target, &depthBuffer[0], width)) continue;
+      //Vec3f source_vis, target_vis;
+      //if (!isEdgePartialVisible(source, target, &depthBuffer[0], width, &source_vis, &target_vis)) continue;
+      Vec3f source_vis = source, target_vis = target;
+
+      Vec3f p1 = toImagePlane(source_vis);
+      Vec3f p2 = toImagePlane(target_vis);
+      outfile << "<line ";
+      outfile << "x1=\"" << p1[0] << "\" ";
+      outfile << "y1=\"" << height - p1[1] << "\" ";
+      outfile << "x2=\"" << p2[0] << "\" ";
+      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />\n";
+    }
+
+    outfile << "</g>\n";
+  }
+  
   outfile << "</svg>\n";
   outfile.close();
 }
