@@ -118,6 +118,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
     deque<Mesh::HalfedgeHandle> halfEdges;  // halfedges oriented and ordered from start to end
     Mesh::VertexHandle start, end;
     bool startIsVisible, endIsVisible;
+    Vec3f start_adj, end_adj;
     bool isComplete;
   };
 
@@ -160,6 +161,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
           link.halfEdges.push_front(mesh.opposite_halfedge_handle(heh));
           link.start = t;
           link.startIsVisible = tIsVisible;
+          link.start_adj = t_adj;
           unattachedVertex = t;
           unattachedIsStart = true;
           unattachedIsVisible = tIsVisible;
@@ -170,6 +172,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
           link.halfEdges.push_back(heh);
           link.end = t;
           link.endIsVisible = tIsVisible;
+          link.end_adj = t_adj;
           unattachedVertex = t;
           unattachedIsStart = false;
           unattachedIsVisible = tIsVisible;
@@ -184,6 +187,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
           link.halfEdges.push_front(heh);
           link.start = s;
           link.startIsVisible = sIsVisible;
+          link.start_adj = s_adj;
           unattachedVertex = s;
           unattachedIsStart = true;
           unattachedIsVisible = sIsVisible;
@@ -194,6 +198,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
           link.halfEdges.push_back(mesh.opposite_halfedge_handle(heh));
           link.end = s;
           link.endIsVisible = sIsVisible;
+          link.end_adj = s_adj;
           unattachedVertex = s;
           unattachedIsStart = false;
           unattachedIsVisible = sIsVisible;
@@ -242,6 +247,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             }
             firstAttachedLink->start = link.end;
             firstAttachedLink->startIsVisible = link.endIsVisible;
+            firstAttachedLink->start_adj = link.end_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -253,6 +259,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             }
             firstAttachedLink->end = link.end;
             firstAttachedLink->endIsVisible = link.endIsVisible;
+            firstAttachedLink->end_adj = link.end_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -266,6 +273,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             }
             firstAttachedLink->start = link.start;
             firstAttachedLink->startIsVisible = link.startIsVisible;
+            firstAttachedLink->start_adj = link.start_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -277,6 +285,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
             }
             firstAttachedLink->end = link.start;
             firstAttachedLink->endIsVisible = link.startIsVisible;
+            firstAttachedLink->end_adj = link.start_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -309,6 +318,9 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
 
   // sanity check!!!
   for (SilhouetteLink& link : silhouetteLinks) {
+    assert(link.isComplete);
+    if (link.startIsVisible) assert(link.start_adj == mesh.point(link.start));
+    if (link.endIsVisible) assert(link.end_adj == mesh.point(link.end));
     Mesh::VertexHandle prevT = link.start;
     for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
       assert(prevT == mesh.from_vertex_handle(heh));
@@ -338,9 +350,11 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
       Vec3f source(mesh.point(mesh.from_vertex_handle(h0)));
       Vec3f target(mesh.point(mesh.from_vertex_handle(h1)));*/
 
-    for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
-      Vec3f source = mesh.point(mesh.from_vertex_handle(heh));
-      Vec3f target = mesh.point(mesh.to_vertex_handle(heh));
+    //for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
+    for (int i = 0; i < link.halfEdges.size(); i++) {
+      Mesh::HalfedgeHandle heh = link.halfEdges[i];
+      Vec3f source = (i == 0 ? link.start_adj : mesh.point(mesh.from_vertex_handle(heh)));
+      Vec3f target = (i == link.halfEdges.size() - 1 ? link.end_adj : mesh.point(mesh.to_vertex_handle(heh)));
 
       //if (!isVisible(source, &depthBuffer[0], width) || !isVisible(target, &depthBuffer[0], width)) continue;
       //Vec3f source_vis, target_vis;
