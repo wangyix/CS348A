@@ -2,6 +2,7 @@
 #include "mesh_features.h"
 #include <GL/glut.h>
 #include <fstream>
+#include <iostream>
 //#include <set>
 //#include <map>
 //#include <list>
@@ -40,24 +41,26 @@ bool isVisible(Vec3f point) {
   return (bufDepth - projected[2]) > -EPSILON; // check sign!
 }*/
 
-bool isVisible(const Vec3f& point, const GLfloat* depthBuffer, int width) {
+bool isVisible(const Vec3f& point, const GLfloat* depthBuffer, int width, int height) {
   Vec3f proj = toImagePlane(point);
+  if (!(0 <= proj[0] && proj[0] < width && 0 <= proj[1] && proj[1] < height)) return false;
   return (depthBuffer[((int)proj[1]) * width + (int)proj[0]] - proj[2]) > -EPSILON;
 }
 
-bool isVisible(const Vec3f& point, const GLfloat* depthBuffer, int width, Vec3f* projected) {
+bool isVisible(const Vec3f& point, const GLfloat* depthBuffer, int width, int height, Vec3f* projected) {
   Vec3f proj = toImagePlane(point);
   *projected = proj;
+  if (!(0 <= proj[0] && proj[0] < width && 0 <= proj[1] && proj[1] < height)) return false;
   return (depthBuffer[((int)proj[1]) * width + (int)proj[0]] - proj[2]) > -EPSILON;
 }
 
 // Returns true if edge is wholly or partially visible. If only partially visible, the occluded endpoint
 // will be adjusted along the edge to the boundary between the visible and occluded portions of the edge.
-bool isEdgePartialVisible(const Vec3f& s, const Vec3f& t, const GLfloat* depthBuffer, int width,
+bool isEdgePartialVisible(const Vec3f& s, const Vec3f& t, const GLfloat* depthBuffer, int width, int height,
                           bool* s_visible, bool* t_visible, Vec3f* s_adj, Vec3f* t_adj) {
   Vec3f s_proj, t_proj;
-  *s_visible = isVisible(s, &depthBuffer[0], width, &s_proj);
-  *t_visible = isVisible(t, &depthBuffer[0], width, &t_proj);
+  *s_visible = isVisible(s, &depthBuffer[0], width, height, &s_proj);
+  *t_visible = isVisible(t, &depthBuffer[0], width, height, &t_proj);
   
   Vec3f a, b;   // a will be visible bound, b will be occluded bound
   Vec3f a_proj, b_proj;
@@ -92,7 +95,7 @@ bool isEdgePartialVisible(const Vec3f& s, const Vec3f& t, const GLfloat* depthBu
   while ((abs(a_proj[0] - b_proj[0]) + abs(a_proj[1] - b_proj[1])) >= 1.f) {
     Vec3f c = 0.5f * (a + b);
     Vec3f c_proj;
-    bool cIsVisible = isVisible(c, &depthBuffer[0], width, &c_proj);
+    bool cIsVisible = isVisible(c, &depthBuffer[0], width, height, &c_proj);
     if (cIsVisible) {
       a = c;
       a_proj = c_proj;
@@ -114,15 +117,50 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
   glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, &depthBuffer[0]);
 
 
-  struct SilhouetteLink {
+  // We want to group visible feature edges into links.  All edges in a visible link must be fully
+  // visible except the links on the ends: those may be partially visible. Specifically, the mesh
+  // vertices that the link starts/ends on may not be visible, but all other vertices must be visible.
+  //
+  // o: vertex
+  // ==: visible portion of edge
+  // --: occluded portion of edge
+  //
+  // Both ends occluded:
+  //
+  // start  o---|==>o=====>o=====>o....o=====>o===|-->o  end
+  //            ^                                 ^
+  //           adj                               adj
+  //
+  // One end occluded:
+  //
+  // start  o======>o=====>o=====>o....o=====>o===|-->o  end
+  //        ^                                     ^
+  //       adj                                   adj
+  //
+  // The LinkEndpoint struct describes one end of a link: vh points to the mesh vertex that this end
+  // is attached to. If the vertex is not visible, then adj is the position on the link edge that's on
+  // the boundary between the visible and occluded portions of the edge. If vertex is visible, then adj
+  // is simply the position of the mesh vertex.
+  // The VisibleLink struct describes a visible link. It's considered complete when no more edges can
+  // be added to either end, which can occur in two ways: the link forms a loop, or both ends of the link
+  // are occluded.
+
+  struct LinkEndpoint {
+    Mesh::VertexHandle vh;
+    bool isVisible;
+    Vec3f adj;
+  };
+  struct VisibleLink {
+    bool checkIsComplete() {
+      isComplete = (start.vh == end.vh || (!start.isVisible && !end.isVisible));
+      return isComplete;
+    }
     deque<Mesh::HalfedgeHandle> halfEdges;  // halfedges oriented and ordered from start to end
-    Mesh::VertexHandle start, end;
-    bool startIsVisible, endIsVisible;
-    Vec3f start_adj, end_adj;
+    LinkEndpoint start, end;
     bool isComplete;
   };
 
-  vector<SilhouetteLink> silhouetteLinks;
+  vector<VisibleLink> silhouetteLinks;
 
   // For each edge, check if it's connected to any existing silhouette link(s) at either endpoint.  If so, add the edge
   // to that link.  If the edge is connected to two different links, the two links need to be merged.
@@ -133,75 +171,62 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
       continue;
     }
     Mesh::HalfedgeHandle heh = mesh.halfedge_handle(eh, 0);
-    Mesh::VertexHandle s = mesh.from_vertex_handle(heh);
-    Mesh::VertexHandle t = mesh.to_vertex_handle(heh);
 
-    bool sIsVisible, tIsVisible;
-    Vec3f s_adj, t_adj;
-    if (!isEdgePartialVisible(mesh.point(s), mesh.point(t), &depthBuffer[0], width, &sIsVisible, &tIsVisible, &s_adj, &t_adj)) {
+    LinkEndpoint s, t;
+    s.vh = mesh.from_vertex_handle(heh);
+    t.vh = mesh.to_vertex_handle(heh);
+
+    if (!isEdgePartialVisible(mesh.point(s.vh), mesh.point(t.vh), &depthBuffer[0], width, height, &s.isVisible, &t.isVisible, &s.adj, &t.adj)) {
       continue;
     }
 
-    SilhouetteLink* firstAttachedLink = NULL;    // This will be updated to the first link the edge is attached to (if any)
-    Mesh::VertexHandle unattachedVertex;  // This will be updated to the unattached vertex of the edge after the edge is first attached to a link (if any)
+    VisibleLink* firstAttachedLink = NULL;    // This will be updated to the first link the edge is attached to (if any)
+    LinkEndpoint unattachedEndpoint;      // This will be updated to be the unattached end of the edge after the edge is first attached to a link (if any)
     bool unattachedIsStart = false;       // This will be updated at the same time as unattachedVertex; will indicate if unattachedVertex is the start or end of the link the edge attached to.
-    bool unattachedIsVisible = false;     // Will indicate if the unattachedVertex is visible
     
     // Iterate over the existing links until we find one this edge connects to, or we run out of links.
     auto links_it = silhouetteLinks.begin();
     while(links_it != silhouetteLinks.end()) {
-      SilhouetteLink& link = *links_it;
+      VisibleLink& link = *links_it;
       if (link.isComplete) {
         ++links_it;
         continue;
       }
       // Check if edge vertex s connects to any links
-      if (sIsVisible) {
-        if (s == link.start) {
+      if (s.isVisible) {
+        if (s.vh == link.start.vh) {
           link.halfEdges.push_front(mesh.opposite_halfedge_handle(heh));
           link.start = t;
-          link.startIsVisible = tIsVisible;
-          link.start_adj = t_adj;
-          unattachedVertex = t;
+          unattachedEndpoint = t;
           unattachedIsStart = true;
-          unattachedIsVisible = tIsVisible;
           firstAttachedLink = &link;
           ++links_it;
           break;
-        } else if (s == link.end) {
+        } else if (s.vh == link.end.vh) {
           link.halfEdges.push_back(heh);
           link.end = t;
-          link.endIsVisible = tIsVisible;
-          link.end_adj = t_adj;
-          unattachedVertex = t;
+          unattachedEndpoint = t;
           unattachedIsStart = false;
-          unattachedIsVisible = tIsVisible;
           firstAttachedLink = &link;
           ++links_it;
           break;
         }
       }
       // Check if edge vertex t connects to any links
-      if (tIsVisible) {
-        if (t == link.start) {
+      if (t.isVisible) {
+        if (t.vh == link.start.vh) {
           link.halfEdges.push_front(heh);
           link.start = s;
-          link.startIsVisible = sIsVisible;
-          link.start_adj = s_adj;
-          unattachedVertex = s;
+          unattachedEndpoint = s;
           unattachedIsStart = true;
-          unattachedIsVisible = sIsVisible;
           firstAttachedLink = &link;
           ++links_it;
           break;
-        } else if (t == link.end) {
+        } else if (t.vh == link.end.vh) {
           link.halfEdges.push_back(mesh.opposite_halfedge_handle(heh));
           link.end = s;
-          link.endIsVisible = sIsVisible;
-          link.end_adj = s_adj;
-          unattachedVertex = s;
+          unattachedEndpoint = s;
           unattachedIsStart = false;
-          unattachedIsVisible = sIsVisible;
           firstAttachedLink = &link;
           ++links_it;
           break;
@@ -214,31 +239,28 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
 
     
     if (firstAttachedLink != NULL) {
-
       // If this edge was attached to a link and turned it into a loop, then that link is complete.
       // Additionally, if both ends of this link are occluded, then no more links can attach at either end, so it's complete.
       // We don't need to check this edge against the remaining links; move on to next edge.
-      bool linkIsLoop = (firstAttachedLink->start == firstAttachedLink->end);
-      bool linkEndsAreOccluded = (!firstAttachedLink->startIsVisible && !firstAttachedLink->endIsVisible);
-      if (linkIsLoop || linkEndsAreOccluded) {
-        firstAttachedLink->isComplete = true;
+      if (firstAttachedLink->checkIsComplete()) {
         continue;
       }
-      // If the unattached end of the edge is not visible, there's no need to check if it connects to any other links.
-      if (!unattachedIsVisible) {
+      // If the unattached end of the edge is not visible, there's no need to check if it connects to any other links since nothing
+      // further cound be connected to the edge on that end.
+      if (!unattachedEndpoint.isVisible) {
         continue;
       }
-
+      
       // At this point, if the edge has been attached to a link, we'll check if the unattached end of the
       // edge connects to any of the remaining links. If so, the two links connected by the edge need to be merged.
       bool linksMerged = false;
       while (links_it != silhouetteLinks.end()) {
-        SilhouetteLink& link = *links_it;
+        VisibleLink& link = *links_it;
         if (link.isComplete) {
           ++links_it;
           continue;
         }
-        if (unattachedVertex == link.start) {
+        if (unattachedEndpoint.vh == link.start.vh) {
           if (unattachedIsStart) {
             // firstAttachedLink <-<-<- unattachedVertex ->->->-> link
             for (int i = 0; i < link.halfEdges.size(); i++) {
@@ -246,8 +268,6 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
               firstAttachedLink->halfEdges.push_front(mesh.opposite_halfedge_handle(link_heh));
             }
             firstAttachedLink->start = link.end;
-            firstAttachedLink->startIsVisible = link.endIsVisible;
-            firstAttachedLink->start_adj = link.end_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -258,13 +278,11 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
               firstAttachedLink->halfEdges.push_back(link_heh);
             }
             firstAttachedLink->end = link.end;
-            firstAttachedLink->endIsVisible = link.endIsVisible;
-            firstAttachedLink->end_adj = link.end_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
           }
-        } else if (unattachedVertex == link.end) {
+        } else if (unattachedEndpoint.vh == link.end.vh) {
           if (unattachedIsStart) {
             // firstAttachedLink <-<-<- unattachedVertex <-<-<-<- link
             for (int i = link.halfEdges.size() - 1; i >= 0; i--) {
@@ -272,8 +290,6 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
               firstAttachedLink->halfEdges.push_front(link_heh);
             }
             firstAttachedLink->start = link.start;
-            firstAttachedLink->startIsVisible = link.startIsVisible;
-            firstAttachedLink->start_adj = link.start_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -284,8 +300,6 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
               firstAttachedLink->halfEdges.push_back(mesh.opposite_halfedge_handle(link_heh));
             }
             firstAttachedLink->end = link.start;
-            firstAttachedLink->endIsVisible = link.startIsVisible;
-            firstAttachedLink->end_adj = link.start_adj;
             links_it = silhouetteLinks.erase(links_it);
             linksMerged = true;
             break;
@@ -294,54 +308,54 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
         ++links_it;
       }
       if (linksMerged) {
-        bool linkEndsAreOccluded = (!firstAttachedLink->startIsVisible && !firstAttachedLink->endIsVisible);
-        if (linkEndsAreOccluded) {
-          firstAttachedLink->isComplete = true;
+        if (firstAttachedLink->checkIsComplete()) {
           continue;
         }
       }
 
     } else {
       // This edge doesn't touch any existing link, create a new link from it
-      silhouetteLinks.push_back(SilhouetteLink());
-      SilhouetteLink& newLink = silhouetteLinks.back();
+      silhouetteLinks.push_back(VisibleLink());
+      VisibleLink& newLink = silhouetteLinks.back();
       newLink.halfEdges.push_back(heh);
       newLink.start = s;
       newLink.end = t;
-      newLink.startIsVisible = sIsVisible;
-      newLink.endIsVisible = tIsVisible;
       newLink.isComplete = false;   // at least one of s,t is visible, so this can't be true initially
-      firstAttachedLink = &newLink;
+      //firstAttachedLink = &newLink;
     }
   }
 
 
   // sanity check!!!
-  for (SilhouetteLink& link : silhouetteLinks) {
+  for (VisibleLink& link : silhouetteLinks) {
     assert(link.isComplete);
-    if (link.startIsVisible) assert(link.start_adj == mesh.point(link.start));
-    if (link.endIsVisible) assert(link.end_adj == mesh.point(link.end));
-    Mesh::VertexHandle prevT = link.start;
+    if (link.start.isVisible) assert(link.start.adj == mesh.point(link.start.vh));
+    if (link.end.isVisible) assert(link.end.adj == mesh.point(link.end.vh));
+    Mesh::VertexHandle prevT = link.start.vh;
     for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
       assert(prevT == mesh.from_vertex_handle(heh));
       prevT = mesh.to_vertex_handle(heh);
     }
-    assert(prevT == link.end);
+    assert(prevT == link.end.vh);
   }
 
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>\n";
   outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">\n";
 
-  string strokeStrings[4] = { "<g stroke=\"black\" fill=\"black\">\n",
+  string strokeStrings[8] = { "<g stroke=\"black\" fill=\"black\">\n",
                               "<g stroke=\"red\" fill=\"black\">\n",
                               "<g stroke=\"blue\" fill=\"black\">\n",
-                              "<g stroke=\"magenta\" fill=\"black\">\n" };
+                              "<g stroke=\"magenta\" fill=\"black\">\n",
+                              "<g stroke=\"orange\" fill=\"black\">\n",
+                              "<g stroke=\"deeppink\" fill=\"black\">\n",
+                              "<g stroke=\"olivedrab\" fill=\"black\">\n"
+                              "<g stroke=\"deepskyblue\" fill=\"black\">\n" };
 
   for (int i = 0; i < silhouetteLinks.size(); i++) {
-    SilhouetteLink& link = silhouetteLinks[i];
+    VisibleLink& link = silhouetteLinks[i];
 
-    outfile << strokeStrings[i % 4];
+    outfile << strokeStrings[i % 8];
 
     // Sample code for generating image of the entire triangle mesh:
     /*for (Mesh::ConstEdgeIter it = mesh.edges_begin(); it != mesh.edges_end(); ++it) {
@@ -353,8 +367,8 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
     //for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
     for (int i = 0; i < link.halfEdges.size(); i++) {
       Mesh::HalfedgeHandle heh = link.halfEdges[i];
-      Vec3f source = (i == 0 ? link.start_adj : mesh.point(mesh.from_vertex_handle(heh)));
-      Vec3f target = (i == link.halfEdges.size() - 1 ? link.end_adj : mesh.point(mesh.to_vertex_handle(heh)));
+      Vec3f source = (i == 0 ? link.start.adj : mesh.point(mesh.from_vertex_handle(heh)));
+      Vec3f target = (i == link.halfEdges.size() - 1 ? link.end.adj : mesh.point(mesh.to_vertex_handle(heh)));
 
       //if (!isVisible(source, &depthBuffer[0], width) || !isVisible(target, &depthBuffer[0], width)) continue;
       //Vec3f source_vis, target_vis;
@@ -375,4 +389,6 @@ void writeImage(Mesh &mesh, int width, int height, string filename, Vec3f camPos
   
   outfile << "</svg>\n";
   outfile.close();
+
+  cout << filename << " written" << endl;
 }
