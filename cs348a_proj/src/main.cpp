@@ -18,6 +18,7 @@ using namespace Eigen;
 VPropHandleT<double> viewCurvature;
 FPropHandleT<Vec3f> viewCurvatureDerivative;
 VPropHandleT<CurvatureInfo> curvature;
+EPropHandleT<bool> edgeVisited;
 Mesh mesh;
 
 
@@ -326,6 +327,7 @@ int main(int argc, char** argv) {
   mesh.add_property(viewCurvature);
   mesh.add_property(viewCurvatureDerivative);
   mesh.add_property(curvature);
+  mesh.add_property(edgeVisited);
 
   // Move center of mass to origin
   Vec3f center(0, 0, 0);

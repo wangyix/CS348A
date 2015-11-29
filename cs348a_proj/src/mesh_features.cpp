@@ -32,7 +32,7 @@ bool isSharpEdge(Mesh &mesh, const Mesh::EdgeHandle &e) {
 }
 
 bool isFeatureEdge(Mesh &mesh, const Mesh::EdgeHandle &e, Vec3f cameraPos) {
-  return mesh.is_boundary(e) || isSilhouette(mesh, e, cameraPos) || isSharpEdge(mesh, e);
+  return /*mesh.is_boundary(e) ||*/ isSilhouette(mesh, e, cameraPos) /*|| isSharpEdge(mesh, e)*/;
 }
 
 bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actualCamPos, 
@@ -96,5 +96,5 @@ bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actua
 
   *s = p1;
   *t = p2;
-  return true;
+  return false /*true*/;
 }
