@@ -147,6 +147,7 @@ Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const 
       b_proj = c_proj;
     }
   }
+  return 0.5f * (a + b);
 }
 
 
@@ -192,13 +193,13 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
     bool isVisible;
     Vec3f pos;
   };
-  struct VisibleLink {
+  struct Link {
     deque<Mesh::HalfedgeHandle> halfEdges;  // halfedges oriented and ordered from start to end
     LinkEndpoint start, end;
   };
 
 
-  vector<VisibleLink> visibleLinks;
+  vector<Link> silhouetteLinks;
 
   // clear all edgeVisited flags
   Mesh::EdgeIter e_it, e_it_end = mesh.edges_end();
@@ -208,14 +209,12 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
 
   // Visit all edges and group them into visible links.
   for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
-    
     Mesh::EdgeHandle eh = *e_it;
-    if (mesh.property(edgeVisited, eh)) {
-      continue;
-    }
-    mesh.property(edgeVisited, eh) = true;
 
     if (!isSilhouette(mesh, eh, camPos)) {
+      continue;
+    }
+    if (mesh.property(edgeVisited, eh)) {
       continue;
     }
 
@@ -224,65 +223,58 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
     LinkEndpoint s, t;
     s.vh = mesh.from_vertex_handle(heh);
     t.vh = mesh.to_vertex_handle(heh);
-    s.pos = mesh.point(s.vh);    
-    t.pos = mesh.point(t.vh);
-    float s_depth, t_depth;
-    Vec2f s_proj = toImagePlane(s.pos, &s_depth);
-    Vec2f t_proj = toImagePlane(t.pos, &t_depth);
-    s.isVisible = isVisible(s_proj, s_depth, &depthBuffer[0], width, height);
-    t.isVisible = isVisible(t_proj, t_depth, &depthBuffer[0], width, height);
+    // isVisible, pos are not used yet
 
-    float w_s = (s.pos - camPos) | camLookDir;
-    float w_t = (t.pos - camPos) | camLookDir;
+    silhouetteLinks.push_back(Link());
+    Link& newLink = silhouetteLinks.back();
+    newLink.start = s;
+    newLink.end = t;
+    newLink.halfEdges.push_back(heh);
+    mesh.property(edgeVisited, eh) = true;
 
-    // split edge into segments of equal length in screen-space.
-    const float MAX_EDGE_SEG_LENGTH = 10.f;  // measured in pixels in screenspace
-    int numSegments = ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
-
-    Vec3f prevVertex = s.pos;
-    bool prevVertexVisible = s.isVisible;
-    Vec3f prevVisibleStart = s.pos;
-    for (int i = 1; i <= numSegments; i++) {
-      float b = (numSegments - i) / (float)(numSegments);
-      float a = b*w_s / ((1.f - b)*w_t + b*w_s);
-      Vec3f vertex = (1.f - a)*s.pos + a*t.pos;
-      bool vertexVisible = isVisible(toImagePlane(vertex), &depthBuffer[0], width, height);
-
-      if (!prevVertexVisible && vertexVisible) {
-        Vec3f visibleStart = findVisibilityBoundary(vertex, prevVertex, &depthBuffer[0], width, height);
-        prevVisibleStart = visibleStart;
-      } else if (prevVertexVisible && !vertexVisible) {
-        Vec3f visibleEnd = findVisibilityBoundary(prevVertex, vertex, &depthBuffer[0], width, height);
-        // create new link that starts from prevVisibleStart and ends at visibleEnd
-        visibleLinks.push_back(VisibleLink());
-        VisibleLink& newLink = visibleLinks.back();
-        newLink.halfEdges.push_back(heh);
-        newLink.start.vh = s.vh;
-        newLink.start.isVisible = false;
-        newLink.start.pos = prevVisibleStart;
-        newLink.end.vh = t.vh;
-        newLink.end.isVisible = false;
-        newLink.end.pos = visibleEnd;
+    // extend the end of the link as much as possible
+    while (true) {
+      // Try to find an outgoing halfedge from the current link end that's a silhouette edge
+      Mesh::VertexOHalfedgeCCWIter voh_it, voh_it_end = mesh.voh_ccwend(newLink.end.vh);
+      for (voh_it = mesh.voh_ccwbegin(newLink.end.vh); voh_it != voh_it_end; ++voh_it) {
+        Mesh::HalfedgeHandle heh = *voh_it;
+        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
+        if (!mesh.property(edgeVisited, eh) && isSilhouette(mesh, eh, camPos)) {
+          newLink.end.vh = mesh.to_vertex_handle(heh);
+          newLink.halfEdges.push_back(heh);
+          mesh.property(edgeVisited, eh) = true;
+          break;
+        }
       }
-      prevVertex = vertex;
-      prevVertexVisible = vertexVisible;
+      if (voh_it == voh_it_end) {
+        // No such halfedge was found; the link end cannot be extended further.
+        break;
+      }
     }
-    if (t.isVisible) {
-      visibleLinks.push_back(VisibleLink());
-      VisibleLink& newLink = visibleLinks.back();
-      newLink.halfEdges.push_back(heh);
-      newLink.start.vh = s.vh;
-      newLink.start.isVisible = false;
-      newLink.start.pos = prevVisibleStart;
-      newLink.end = t;
+    // extend the start of the link as much as possible
+    while (true) {
+      // Try to find an incoming halfedge from the current link start that's a silhouette edge
+      Mesh::VertexIHalfedgeCCWIter vih_it, vih_it_end = mesh.vih_ccwend(newLink.start.vh);
+      for (vih_it = mesh.vih_ccwbegin(newLink.start.vh); vih_it != vih_it_end; ++vih_it) {
+        Mesh::HalfedgeHandle heh = *vih_it;
+        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
+        if (!mesh.property(edgeVisited, eh) && isSilhouette(mesh, eh, camPos)) {
+          newLink.start.vh = mesh.from_vertex_handle(heh);
+          newLink.halfEdges.push_front(heh);
+          mesh.property(edgeVisited, eh) = true;
+          break;
+        }
+      }
+      if (vih_it == vih_it_end) {
+        // No such halfedge was found; the link start cannot be extended further
+        break;
+      }
     }
-
-
   }
 
 
-  // sanity check!!!
-  for (VisibleLink& link : visibleLinks) {
+  /*// sanity check!!!
+  for (Link& link : visibleLinks) {
     assert(link.isComplete);
     if (link.start.isVisible) assert(link.start.pos == mesh.point(link.start.vh));
     if (link.end.isVisible) assert(link.end.pos == mesh.point(link.end.vh));
@@ -292,7 +284,7 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
       prevT = mesh.to_vertex_handle(heh);
     }
     assert(prevT == link.end.vh);
-  }
+  }*/
 
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>\n";
@@ -307,8 +299,8 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
                               "<g stroke=\"olivedrab\" fill=\"black\">\n"
                               "<g stroke=\"deepskyblue\" fill=\"black\">\n" };
 
-  for (int i = 0; i < visibleLinks.size(); i++) {
-    VisibleLink& link = visibleLinks[i];
+  for (int i = 0; i < silhouetteLinks.size(); i++) {
+    Link& link = silhouetteLinks[i];
 
     outfile << strokeStrings[i % 8];
 
@@ -322,8 +314,10 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
     //for (Mesh::HalfedgeHandle& heh : link.halfEdges) {
     for (int i = 0; i < link.halfEdges.size(); i++) {
       Mesh::HalfedgeHandle heh = link.halfEdges[i];
-      Vec3f source = (i == 0 ? link.start.pos : mesh.point(mesh.from_vertex_handle(heh)));
-      Vec3f target = (i == link.halfEdges.size() - 1 ? link.end.pos : mesh.point(mesh.to_vertex_handle(heh)));
+      //Vec3f source = (i == 0 ? link.start.pos : mesh.point(mesh.from_vertex_handle(heh)));
+      //Vec3f target = (i == link.halfEdges.size() - 1 ? link.end.pos : mesh.point(mesh.to_vertex_handle(heh)));
+      Vec3f source = mesh.point(mesh.from_vertex_handle(heh));
+      Vec3f target = mesh.point(mesh.to_vertex_handle(heh));
 
       //if (!isVisible(source, &depthBuffer[0], width) || !isVisible(target, &depthBuffer[0], width)) continue;
       //Vec3f source_vis, target_vis;

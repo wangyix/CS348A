@@ -286,7 +286,9 @@ void keyboard(unsigned char key, int x, int y) {
     simplify(mesh, percentage, "output.off");
   }
   else if (key == 'w' || key == 'W') {
-    writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos);
+    Vec3f cameraLookDir(-cameraPos[0], -cameraPos[1], -cameraPos[2]);
+    cameraLookDir.normalize();
+    writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos, cameraLookDir, edgeVisited);
   }
   else if (key == 'q' || key == 'Q') exit(0);
   glutPostRedisplay();
