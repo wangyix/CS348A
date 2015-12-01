@@ -39,16 +39,18 @@ bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actua
                              VPropHandleT<double>& viewCurvature,
                              FPropHandleT<Vec3f>& viewCurvatureDerivative,
                              float nDotViewMax, float DwkrMin,
-                             Vec3f* s, Vec3f* t) {
-  Mesh::VertexHandle vh[3];
+                             Vec3f* s, Vec3f* t,
+                             Mesh::EdgeHandle* s_edge, Mesh::EdgeHandle* t_edge) {
+  Mesh::HalfedgeHandle heh[3];
   double kw[3];
   int numKwPositive = 0, posKwIndex = -1, negKwIndex = -1;
   {
     int i = 0;
-    Mesh::FaceVertexCCWIter fv_it, fv_it_end = mesh.fv_ccwend(fh);
-    for (fv_it = mesh.fv_ccwbegin(fh); fv_it != fv_it_end; ++fv_it) {
-      vh[i] = *fv_it;
-      kw[i] = mesh.property(viewCurvature, *fv_it);
+    Mesh::FaceHalfedgeCCWIter fh_it, fh_it_end = mesh.fh_ccwend(fh);
+    for (fh_it = mesh.fh_ccwbegin(fh); fh_it != fh_it_end; ++fh_it) {
+      heh[i] = *fh_it;
+      Mesh::VertexHandle to_vh = mesh.to_vertex_handle(*fh_it);
+      kw[i] = mesh.property(viewCurvature, to_vh);
       if (kw[i] > 0.0) {
         numKwPositive++;
         posKwIndex = i;
@@ -65,13 +67,14 @@ bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actua
   }
 
   // assign v0 to be the odd-man-out vertex, and v1,v2 to be the other two vertices
+  // i0, i1, i2 are in CCW order
   int i0 = (numKwPositive == 1) ? posKwIndex : negKwIndex;
   assert(0 <= i0 && i0 < 3);
-  int i1 = (i0 == 0) ? 1 : 0;
-  int i2 = (i0 == 2) ? 1 : 2;
-  Vec3f v0 = mesh.point(vh[i0]);
-  Vec3f v1 = mesh.point(vh[i1]);
-  Vec3f v2 = mesh.point(vh[i2]);
+  int i1 = (i0 + 1) % 3;
+  int i2 = (i0 + 2) % 3;
+  Vec3f v0 = mesh.point(mesh.to_vertex_handle(heh[i0]));
+  Vec3f v1 = mesh.point(mesh.to_vertex_handle(heh[i1]));
+  Vec3f v2 = mesh.point(mesh.to_vertex_handle(heh[i2]));
   double kw0 = kw[i0];
   double kw1 = kw[i1];
   double kw2 = kw[i2];
@@ -96,5 +99,7 @@ bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actua
 
   *s = p1;
   *t = p2;
+  *s_edge = mesh.edge_handle(heh[i1]);
+  *t_edge = mesh.edge_handle(heh[i0]);
   return false /*true*/;
 }

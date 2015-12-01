@@ -11,6 +11,6 @@ bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const OpenMesh::Ve
                              OpenMesh::VPropHandleT<double>& viewCurvature,
                              OpenMesh::FPropHandleT<OpenMesh::Vec3f>& viewCurvatureDerivative,
                              float nDotViewMax, float DwkrMin,
-                             OpenMesh::Vec3f* s, OpenMesh::Vec3f* t);
+                             OpenMesh::Vec3f* s, OpenMesh::Vec3f* t, Mesh::EdgeHandle* s_edge, Mesh::EdgeHandle* t_edge);
 
 #endif

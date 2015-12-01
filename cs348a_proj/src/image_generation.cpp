@@ -284,7 +284,9 @@ static void generateVisibleLinks(const vector<Link> links,
 
 void writeImage(Mesh &mesh, int width, int height, string filename,
                 const Vec3f& camPos, const Vec3f& camLookDir,
-                EPropHandleT<bool>& edgeVisited) {
+                float nDotViewMax, float DwkrMin,
+                EPropHandleT<bool>& edgeVisited, FPropHandleT<bool>& faceVisited,
+                VPropHandleT<double>& viewCurvature, FPropHandleT<Vec3f>& viewCurvatureDerivative) {
 
   // copy entire depth buffer
   vector<GLfloat> depthBuffer(width * height);
@@ -296,6 +298,24 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
   generateVisibleLinks(silhouetteLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleSilhouetteLinks);
   
 
+
+  vector<Link> contourLinks;
+
+  // clear all faceVisited flags
+  Mesh::FaceIter f_it, f_it_end = mesh.faces_end();
+  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
+    mesh.property(faceVisited, *f_it) = false;
+  }
+
+  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
+    Mesh::FaceHandle fh = *f_it;
+    Vec3f s, t;
+    if (mesh.property(faceVisited, fh) ||
+        !isSuggestiveContourFace(mesh, fh, camPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin, &s, &t)) {
+      continue;
+    }
+
+  }
 
 
   ofstream outfile(filename.c_str());
