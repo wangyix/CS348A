@@ -104,9 +104,84 @@ struct Link {
   deque<Vec3f> vertices;
 };
 
-static void generateVisibleLinks(const vector<Link> links, vector<Link>* visibleLinks,
+
+
+static void generateSilhouetteLinks(Mesh& mesh, const Vec3f& camPos, EPropHandleT<bool>& edgeVisited,
+                                    vector<Link>* silhouetteLinks) {
+  silhouetteLinks->clear();
+
+  // clear all edgeVisited flags
+  Mesh::EdgeIter e_it, e_it_end = mesh.edges_end();
+  for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
+    mesh.property(edgeVisited, *e_it) = false;
+  }
+
+  // Visit all edges and group them into visible links.
+  for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
+    Mesh::EdgeHandle eh = *e_it;
+    if (!isFeatureEdge(mesh, eh, camPos) || mesh.property(edgeVisited, eh)) {
+      continue;
+    }
+
+    Mesh::HalfedgeHandle heh = mesh.halfedge_handle(eh, 0);
+    Mesh::VertexHandle s_vh = mesh.from_vertex_handle(heh);
+    Mesh::VertexHandle t_vh = mesh.to_vertex_handle(heh);
+    Vec3f s = mesh.point(s_vh);
+    Vec3f t = mesh.point(t_vh);
+
+    silhouetteLinks->push_back(Link());
+    Link& newLink = silhouetteLinks->back();
+    newLink.vertices.push_back(s);
+    newLink.vertices.push_back(t);
+    mesh.property(edgeVisited, eh) = true;
+
+    // extend the end of the link as much as possible
+    Mesh::VertexHandle newLinkEndVh = t_vh;
+    while (true) {
+      // Try to find an outgoing halfedge from the current link end that's a silhouette edge
+      Mesh::VertexOHalfedgeCCWIter voh_it, voh_it_end = mesh.voh_ccwend(newLinkEndVh);
+      for (voh_it = mesh.voh_ccwbegin(newLinkEndVh); voh_it != voh_it_end; ++voh_it) {
+        Mesh::HalfedgeHandle heh = *voh_it;
+        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
+        if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
+          newLinkEndVh = mesh.to_vertex_handle(heh);
+          newLink.vertices.push_back(mesh.point(newLinkEndVh));
+          mesh.property(edgeVisited, eh) = true;
+          break;
+        }
+      }
+      if (voh_it == voh_it_end) {
+        // No such halfedge was found; the link end cannot be extended further.
+        break;
+      }
+    }
+    // extend the start of the link as much as possible
+    Mesh::VertexHandle newLinkStartVh = s_vh;
+    while (true) {
+      // Try to find an incoming halfedge from the current link start that's a silhouette edge
+      Mesh::VertexIHalfedgeCCWIter vih_it, vih_it_end = mesh.vih_ccwend(newLinkStartVh);
+      for (vih_it = mesh.vih_ccwbegin(newLinkStartVh); vih_it != vih_it_end; ++vih_it) {
+        Mesh::HalfedgeHandle heh = *vih_it;
+        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
+        if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
+          newLinkStartVh = mesh.from_vertex_handle(heh);
+          newLink.vertices.push_front(mesh.point(newLinkStartVh));
+          mesh.property(edgeVisited, eh) = true;
+          break;
+        }
+      }
+      if (vih_it == vih_it_end) {
+        // No such halfedge was found; the link start cannot be extended further
+        break;
+      }
+    }
+  }
+}
+
+static void generateVisibleLinks(const vector<Link> links,
                                  const GLfloat* depthBuffer, int width, int height,
-                                 const Vec3f& camPos, const Vec3f& camLookDir) {
+                                 const Vec3f& camPos, const Vec3f& camLookDir,
+                                 vector<Link>* visibleLinks) {
   visibleLinks->clear();
 
   for (const Link& link : links) {
@@ -206,6 +281,7 @@ static void generateVisibleLinks(const vector<Link> links, vector<Link>* visible
   }
 }
 
+
 void writeImage(Mesh &mesh, int width, int height, string filename,
                 const Vec3f& camPos, const Vec3f& camLookDir,
                 EPropHandleT<bool>& edgeVisited) {
@@ -215,77 +291,12 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
   glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, &depthBuffer[0]);
 
   vector<Link> silhouetteLinks;
-
-  // clear all edgeVisited flags
-  Mesh::EdgeIter e_it, e_it_end = mesh.edges_end();
-  for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
-    mesh.property(edgeVisited, *e_it) = false;
-  }
-
-  // Visit all edges and group them into visible links.
-  for (e_it = mesh.edges_begin(); e_it != e_it_end; ++e_it) {
-    Mesh::EdgeHandle eh = *e_it;
-    if (!isFeatureEdge(mesh, eh, camPos) || mesh.property(edgeVisited, eh)) {
-      continue;
-    }
-
-    Mesh::HalfedgeHandle heh = mesh.halfedge_handle(eh, 0);
-    Mesh::VertexHandle s_vh = mesh.from_vertex_handle(heh);
-    Mesh::VertexHandle t_vh = mesh.to_vertex_handle(heh);
-    Vec3f s = mesh.point(s_vh);
-    Vec3f t = mesh.point(t_vh);
-
-    silhouetteLinks.push_back(Link());
-    Link& newLink = silhouetteLinks.back();
-    newLink.vertices.push_back(s);
-    newLink.vertices.push_back(t);
-    mesh.property(edgeVisited, eh) = true;
-
-    // extend the end of the link as much as possible
-    Mesh::VertexHandle newLinkEndVh = t_vh;
-    while (true) {
-      // Try to find an outgoing halfedge from the current link end that's a silhouette edge
-      Mesh::VertexOHalfedgeCCWIter voh_it, voh_it_end = mesh.voh_ccwend(newLinkEndVh);
-      for (voh_it = mesh.voh_ccwbegin(newLinkEndVh); voh_it != voh_it_end; ++voh_it) {
-        Mesh::HalfedgeHandle heh = *voh_it;
-        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
-        if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
-          newLinkEndVh = mesh.to_vertex_handle(heh);
-          newLink.vertices.push_back(mesh.point(newLinkEndVh));
-          mesh.property(edgeVisited, eh) = true;
-          break;
-        }
-      }
-      if (voh_it == voh_it_end) {
-        // No such halfedge was found; the link end cannot be extended further.
-        break;
-      }
-    }
-    // extend the start of the link as much as possible
-    Mesh::VertexHandle newLinkStartVh = s_vh;
-    while (true) {
-      // Try to find an incoming halfedge from the current link start that's a silhouette edge
-      Mesh::VertexIHalfedgeCCWIter vih_it, vih_it_end = mesh.vih_ccwend(newLinkStartVh);
-      for (vih_it = mesh.vih_ccwbegin(newLinkStartVh); vih_it != vih_it_end; ++vih_it) {
-        Mesh::HalfedgeHandle heh = *vih_it;
-        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
-        if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
-          newLinkStartVh = mesh.from_vertex_handle(heh);
-          newLink.vertices.push_front(mesh.point(newLinkStartVh));
-          mesh.property(edgeVisited, eh) = true;
-          break;
-        }
-      }
-      if (vih_it == vih_it_end) {
-        // No such halfedge was found; the link start cannot be extended further
-        break;
-      }
-    }
-  }
-
-  vector<Link> visibleLinks;
-  generateVisibleLinks(silhouetteLinks, &visibleLinks, &depthBuffer[0], width, height, camPos, camLookDir);
+  generateSilhouetteLinks(mesh, camPos, edgeVisited, &silhouetteLinks);
+  vector<Link> visibleSilhouetteLinks;
+  generateVisibleLinks(silhouetteLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleSilhouetteLinks);
   
+
+
 
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
@@ -300,8 +311,8 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
                               "<g stroke=\"olivedrab\" fill=\"black\">",
                               "<g stroke=\"deepskyblue\" fill=\"black\">" };
 
-  for (int i = 0; i < visibleLinks.size(); i++) {
-    Link& link = visibleLinks[i];
+  for (int i = 0; i < visibleSilhouetteLinks.size(); i++) {
+    Link& link = visibleSilhouetteLinks[i];
 
     outfile << strokeStrings[i % 8] << endl;
 
