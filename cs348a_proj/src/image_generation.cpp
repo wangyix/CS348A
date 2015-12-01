@@ -100,12 +100,111 @@ Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const 
 }
 
 
-
-
 struct Link {
   deque<Vec3f> vertices;
 };
 
+static void generateVisibleLinks(const vector<Link> links, vector<Link>* visibleLinks,
+                                 const GLfloat* depthBuffer, int width, int height,
+                                 const Vec3f& camPos, const Vec3f& camLookDir) {
+  visibleLinks->clear();
+
+  for (const Link& link : links) {
+
+    Vec3f start = link.vertices.front();
+    bool startVisible = isVisible(toImagePlane(start), &depthBuffer[0], width, height);
+    int firstLinkAt = -1;
+    if (startVisible) {
+      firstLinkAt = visibleLinks->size();
+      visibleLinks->push_back(Link());
+      visibleLinks->back().vertices.push_back(start);
+    }
+
+    Vec3f prevSamplePos = start;
+    bool prevSamplePosVisible = startVisible;
+
+    // Walk through link edges, recording visible portions as we encounter them
+    for (int tIndex = 1; tIndex < link.vertices.size(); ++tIndex) {
+      Vec3f s = link.vertices[tIndex - 1];
+      Vec3f t = link.vertices[tIndex];
+      float s_depth, t_depth;
+      Vec2f s_proj = toImagePlane(s, &s_depth);
+      Vec2f t_proj = toImagePlane(t, &t_depth);
+      float w_s = (s - camPos) | camLookDir;
+      float w_t = (t - camPos) | camLookDir;
+
+      // split edge into segments of equal length in screen-space.
+      const float MAX_EDGE_SEG_LENGTH = 4.f;  // measured in pixels in screenspace
+      int numSegments = ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
+      bool linkEndsOnThisEdge = false;
+      for (int i = 1; i <= numSegments; i++) {
+        float b = i / (float)(numSegments);
+        float a = b*w_s / ((1.f - b)*w_t + b*w_s);
+        Vec3f samplePos = (1.f - a)*s + a*t;
+        bool samplePosVisible = isVisible(toImagePlane(samplePos), &depthBuffer[0], width, height);
+
+        /*float unused;               // debug code to check screen-space lengths of segments
+        Vec2f vertexProj = toImagePlane(vertex, &unused);
+        Vec2f prevVertexProj = toImagePlane(prevVertex, &unused);
+        float d = (vertexProj - prevVertexProj).norm();*/
+
+        if (prevSamplePosVisible) {
+          Vec3f newEnd;
+          if (samplePosVisible) {
+            newEnd = samplePos;
+          } else {
+            newEnd = findVisibilityBoundary(prevSamplePos, samplePos, &depthBuffer[0], width, height);
+          }
+          // Extend the current link
+          if (linkEndsOnThisEdge) {
+            visibleLinks->back().vertices.back() = newEnd;
+          } else {
+            visibleLinks->back().vertices.push_back(newEnd);
+            linkEndsOnThisEdge = true;
+          }
+          /*visibleLinks->push_back(Link());       // debug code for visualizing the segmented edges
+          visibleLinks->back().vertices.push_back(prevSamplePos);
+          visibleLinks->back().vertices.push_back(newEnd);
+          linkEndsOnThisEdge = true;*/
+        } else {
+          if (samplePosVisible) {
+            // Start a new link
+            visibleLinks->push_back(Link());
+            Vec3f newStart = findVisibilityBoundary(samplePos, prevSamplePos, &depthBuffer[0], width, height);
+            visibleLinks->back().vertices.push_back(newStart);
+            visibleLinks->back().vertices.push_back(samplePos);
+            linkEndsOnThisEdge = true;
+          }
+        }
+        prevSamplePos = samplePos;
+        prevSamplePosVisible = samplePosVisible;
+      }
+    }
+
+    if (start == link.vertices.back() && startVisible) {
+      // The silhouette link is a loop; the first and last visible links need to be joined into one link
+      // (unless the whole loop is visible, in which case the first and last links are already the same link).
+      // Append the edges in the last visible link to the front of the edges in the first visible link,
+      // then remove the last visible link from visibleLinks->
+      assert(0 <= firstLinkAt && firstLinkAt < visibleLinks->size());
+      if (firstLinkAt != visibleLinks->size() - 1) {
+        Link& firstLink = visibleLinks->at(firstLinkAt);
+        Link& lastLink = visibleLinks->back();
+        deque<Vec3f>& firstLinkVertices = firstLink.vertices;
+        deque<Vec3f>& lastLinkVertices = lastLink.vertices;
+        firstLinkVertices.insert(firstLinkVertices.begin(), lastLinkVertices.begin(), lastLinkVertices.end() - 1);
+        visibleLinks->pop_back();
+      }
+    }
+  }
+
+  // sanity check!!!
+  for (Link& link : *visibleLinks) {
+    for (int i = 1; i < link.vertices.size(); ++i) {
+      assert(link.vertices[i - 1] != link.vertices[i]);
+    }
+  }
+}
 
 void writeImage(Mesh &mesh, int width, int height, string filename,
                 const Vec3f& camPos, const Vec3f& camLookDir,
@@ -185,102 +284,8 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
   }
 
   vector<Link> visibleLinks;
-
-  for (Link& silhouetteLink : silhouetteLinks) {
-
-    Vec3f start = silhouetteLink.vertices.front();
-    bool startVisible = isVisible(toImagePlane(start), &depthBuffer[0], width, height);
-    int firstLinkAt = -1;
-    if (startVisible) {
-      firstLinkAt = visibleLinks.size();
-      visibleLinks.push_back(Link());
-      visibleLinks.back().vertices.push_back(start);
-    }
-
-    Vec3f prevSamplePos = start;
-    bool prevSamplePosVisible = startVisible;
-
-    // Walk through link edges, recording visible portions as we encounter them
-    for (int tIndex = 1; tIndex < silhouetteLink.vertices.size(); ++tIndex) {
-      Vec3f s = silhouetteLink.vertices[tIndex - 1];
-      Vec3f t = silhouetteLink.vertices[tIndex];
-      float s_depth, t_depth;
-      Vec2f s_proj = toImagePlane(s, &s_depth);
-      Vec2f t_proj = toImagePlane(t, &t_depth);
-      float w_s = (s - camPos) | camLookDir;
-      float w_t = (t - camPos) | camLookDir;
-
-      // split edge into segments of equal length in screen-space.
-      const float MAX_EDGE_SEG_LENGTH = 4.f;  // measured in pixels in screenspace
-      int numSegments = ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
-      bool linkEndsOnThisEdge = false;
-      for (int i = 1; i <= numSegments; i++) {
-        float b = i / (float)(numSegments);
-        float a = b*w_s / ((1.f - b)*w_t + b*w_s);
-        Vec3f samplePos = (1.f - a)*s + a*t;
-        bool samplePosVisible = isVisible(toImagePlane(samplePos), &depthBuffer[0], width, height);
-
-        /*float unused;               // debug code to check screen-space lengths of segments
-        Vec2f vertexProj = toImagePlane(vertex, &unused);
-        Vec2f prevVertexProj = toImagePlane(prevVertex, &unused);
-        float d = (vertexProj - prevVertexProj).norm();*/
-
-        if (prevSamplePosVisible) {
-          Vec3f newEnd;
-          if (samplePosVisible) {
-            newEnd = samplePos;
-          } else {
-            newEnd = findVisibilityBoundary(prevSamplePos, samplePos, &depthBuffer[0], width, height);
-          }
-          // Extend the current link
-          if (linkEndsOnThisEdge) {
-            visibleLinks.back().vertices.back() = newEnd;
-          } else {
-            visibleLinks.back().vertices.push_back(newEnd);
-            linkEndsOnThisEdge = true;
-          }
-          /*visibleLinks.push_back(Link());       // debug code for visualizing the segmented edges
-          visibleLinks.back().vertices.push_back(prevSamplePos);
-          visibleLinks.back().vertices.push_back(newEnd);
-          linkEndsOnThisEdge = true;*/
-        } else {
-          if (samplePosVisible) {
-            // Start a new link
-            visibleLinks.push_back(Link());
-            Vec3f newStart = findVisibilityBoundary(samplePos, prevSamplePos, &depthBuffer[0], width, height);
-            visibleLinks.back().vertices.push_back(newStart);
-            visibleLinks.back().vertices.push_back(samplePos);
-            linkEndsOnThisEdge = true;
-          }
-        }
-        prevSamplePos = samplePos;
-        prevSamplePosVisible = samplePosVisible;
-      }
-    }
-
-    if (start == silhouetteLink.vertices.back() && startVisible) {
-      // The silhouette link is a loop; the first and last visible links need to be joined into one link
-      // (unless the whole loop is visible, in which case the first and last links are already the same link).
-      // Append the edges in the last visible link to the front of the edges in the first visible link,
-      // then remove the last visible link from visibleLinks.
-      assert(0 <= firstLinkAt && firstLinkAt < visibleLinks.size());
-      if (firstLinkAt != visibleLinks.size() - 1) {
-        Link& firstLink = visibleLinks[firstLinkAt];
-        Link& lastLink = visibleLinks.back();
-        deque<Vec3f>& firstLinkVertices = firstLink.vertices;
-        deque<Vec3f>& lastLinkVertices = lastLink.vertices;
-        firstLinkVertices.insert(firstLinkVertices.begin(), lastLinkVertices.begin(), lastLinkVertices.end() - 1);
-        visibleLinks.pop_back();
-      }
-    }
-  }
-
-  // sanity check!!!
-  for (Link& link : visibleLinks) {
-    for (int i = 1; i < link.vertices.size(); ++i) {
-      assert(link.vertices[i - 1] != link.vertices[i]);
-    }
-  }
+  generateVisibleLinks(silhouetteLinks, &visibleLinks, &depthBuffer[0], width, height, camPos, camLookDir);
+  
 
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
