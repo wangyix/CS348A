@@ -333,6 +333,7 @@ int main(int argc, char** argv) {
   mesh.add_property(viewCurvatureDerivative);
   mesh.add_property(curvature);
   mesh.add_property(edgeVisited);
+  mesh.add_property(faceVisited);
 
   // Move center of mass to origin
   Vec3f center(0, 0, 0);
