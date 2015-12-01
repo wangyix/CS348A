@@ -4,11 +4,10 @@
 #include "mesh_definitions.h"
 #include <string>
 
-//bool isVisible(OpenMesh::Vec3f point);
-void writeImage(Mesh &mesh, int width, int height, std::string filename, 
+void writeImage(Mesh &mesh, int width, int height, const std::string& filename, 
                 const OpenMesh::Vec3f& camPos, const OpenMesh::Vec3f& camLookDir,
-                OpenMesh::EPropHandleT<bool>& edgeVisited, FPropHandleT<bool>& faceVisited,
                 float nDotViewMax, float DwkrMin,
-                VPropHandleT<double>& viewCurvature, FPropHandleT<Vec3f>& viewCurvatureDerivative);
+                OpenMesh::EPropHandleT<bool>& edgeVisited, OpenMesh::FPropHandleT<bool>& faceVisited,
+                OpenMesh::VPropHandleT<double>& viewCurvature, OpenMesh::FPropHandleT<OpenMesh::Vec3f>& viewCurvatureDerivative);
 
 #endif

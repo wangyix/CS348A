@@ -43,7 +43,7 @@ void renderSuggestiveContours(Vec3f actualCamPos) { // use this camera position 
   Mesh::ConstFaceIter f_it, f_it_end = mesh.faces_end();
   for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
     Vec3f p1, p2;
-    Mesh::EdgeHandle unused;
+    Mesh::HalfedgeHandle unused;
     if (isSuggestiveContourFace(mesh, *f_it, actualCamPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin, &p1, &p2, &unused, &unused)) {
       glVertex3f(p1[0], p1[1], p1[2]);
       glVertex3f(p2[0], p2[1], p2[2]);
@@ -291,7 +291,7 @@ void keyboard(unsigned char key, int x, int y) {
     Vec3f cameraLookDir(-cameraPos[0], -cameraPos[1], -cameraPos[2]);
     cameraLookDir.normalize();
     writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos, cameraLookDir,
-               edgeVisited, faceVisited, nDotViewMax, DwkrMin, viewCurvature, viewCurvatureDerivative);
+               nDotViewMax, DwkrMin, edgeVisited, faceVisited, viewCurvature, viewCurvatureDerivative);
   }
   else if (key == 'q' || key == 'Q') exit(0);
   glutPostRedisplay();

@@ -105,10 +105,33 @@ struct Link {
 };
 
 
+static Mesh::VertexHandle extendFeatureLinkEnd(Mesh& mesh, Mesh::VertexHandle linkEnd, deque<Vec3f>* linkVertices,
+                                              void (deque<Vec3f>::*dequePushFunc)(const Vec3f&), const Vec3f& camPos, 
+                                              EPropHandleT<bool>& edgeVisited) {
+  while (true) {
+    // Try to find an outgoing halfedge from the current link end that's a silhouette edge
+    Mesh::VertexOHalfedgeCCWIter voh_it, voh_it_end = mesh.voh_ccwend(linkEnd);
+    for (voh_it = mesh.voh_ccwbegin(linkEnd); voh_it != voh_it_end; ++voh_it) {
+      Mesh::HalfedgeHandle heh = *voh_it;
+      Mesh::EdgeHandle eh = mesh.edge_handle(heh);
+      if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
+        linkEnd = mesh.to_vertex_handle(heh);
+        (linkVertices->*dequePushFunc)(mesh.point(linkEnd));
+        mesh.property(edgeVisited, eh) = true;
+        break;
+      }
+    }
+    if (voh_it == voh_it_end) {
+      // No such halfedge was found; the link end cannot be extended further.
+      break;
+    }
+  }
+  return linkEnd;
+}
 
-static void generateSilhouetteLinks(Mesh& mesh, const Vec3f& camPos, EPropHandleT<bool>& edgeVisited,
-                                    vector<Link>* silhouetteLinks) {
-  silhouetteLinks->clear();
+static void generateFeatureLinks(Mesh& mesh, const Vec3f& camPos, EPropHandleT<bool>& edgeVisited,
+                                    vector<Link>* featureLinks) {
+  featureLinks->clear();
 
   // clear all edgeVisited flags
   Mesh::EdgeIter e_it, e_it_end = mesh.edges_end();
@@ -129,52 +152,15 @@ static void generateSilhouetteLinks(Mesh& mesh, const Vec3f& camPos, EPropHandle
     Vec3f s = mesh.point(s_vh);
     Vec3f t = mesh.point(t_vh);
 
-    silhouetteLinks->push_back(Link());
-    Link& newLink = silhouetteLinks->back();
+    featureLinks->push_back(Link());
+    Link& newLink = featureLinks->back();
     newLink.vertices.push_back(s);
     newLink.vertices.push_back(t);
     mesh.property(edgeVisited, eh) = true;
 
-    // extend the end of the link as much as possible
-    Mesh::VertexHandle newLinkEndVh = t_vh;
-    while (true) {
-      // Try to find an outgoing halfedge from the current link end that's a silhouette edge
-      Mesh::VertexOHalfedgeCCWIter voh_it, voh_it_end = mesh.voh_ccwend(newLinkEndVh);
-      for (voh_it = mesh.voh_ccwbegin(newLinkEndVh); voh_it != voh_it_end; ++voh_it) {
-        Mesh::HalfedgeHandle heh = *voh_it;
-        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
-        if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
-          newLinkEndVh = mesh.to_vertex_handle(heh);
-          newLink.vertices.push_back(mesh.point(newLinkEndVh));
-          mesh.property(edgeVisited, eh) = true;
-          break;
-        }
-      }
-      if (voh_it == voh_it_end) {
-        // No such halfedge was found; the link end cannot be extended further.
-        break;
-      }
-    }
-    // extend the start of the link as much as possible
-    Mesh::VertexHandle newLinkStartVh = s_vh;
-    while (true) {
-      // Try to find an incoming halfedge from the current link start that's a silhouette edge
-      Mesh::VertexIHalfedgeCCWIter vih_it, vih_it_end = mesh.vih_ccwend(newLinkStartVh);
-      for (vih_it = mesh.vih_ccwbegin(newLinkStartVh); vih_it != vih_it_end; ++vih_it) {
-        Mesh::HalfedgeHandle heh = *vih_it;
-        Mesh::EdgeHandle eh = mesh.edge_handle(heh);
-        if (!mesh.property(edgeVisited, eh) && isFeatureEdge(mesh, eh, camPos)) {
-          newLinkStartVh = mesh.from_vertex_handle(heh);
-          newLink.vertices.push_front(mesh.point(newLinkStartVh));
-          mesh.property(edgeVisited, eh) = true;
-          break;
-        }
-      }
-      if (vih_it == vih_it_end) {
-        // No such halfedge was found; the link start cannot be extended further
-        break;
-      }
-    }
+    // extend the two ends of the link as much as possible
+    extendFeatureLinkEnd(mesh, t_vh, &newLink.vertices, &deque<Vec3f>::push_back, camPos, edgeVisited);
+    extendFeatureLinkEnd(mesh, s_vh, &newLink.vertices, &deque<Vec3f>::push_front, camPos, edgeVisited);
   }
 }
 
@@ -282,7 +268,7 @@ static void generateVisibleLinks(const vector<Link> links,
 }
 
 
-void writeImage(Mesh &mesh, int width, int height, string filename,
+void writeImage(Mesh &mesh, int width, int height, const string& filename,
                 const Vec3f& camPos, const Vec3f& camLookDir,
                 float nDotViewMax, float DwkrMin,
                 EPropHandleT<bool>& edgeVisited, FPropHandleT<bool>& faceVisited,
@@ -292,14 +278,12 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
   vector<GLfloat> depthBuffer(width * height);
   glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, &depthBuffer[0]);
 
-  vector<Link> silhouetteLinks;
-  generateSilhouetteLinks(mesh, camPos, edgeVisited, &silhouetteLinks);
+  vector<Link> featureLinks;
+  generateFeatureLinks(mesh, camPos, edgeVisited, &featureLinks);
   vector<Link> visibleSilhouetteLinks;
-  generateVisibleLinks(silhouetteLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleSilhouetteLinks);
+  generateVisibleLinks(featureLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleSilhouetteLinks);
   
-
-
-  vector<Link> contourLinks;
+  /*vector<Link> contourLinks;
 
   // clear all faceVisited flags
   Mesh::FaceIter f_it, f_it_end = mesh.faces_end();
@@ -309,14 +293,59 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
 
   for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
     Mesh::FaceHandle fh = *f_it;
-    Vec3f s, t;
+    Vec3f start, end;
+    Mesh::HalfedgeHandle start_heh, end_heh;
     if (mesh.property(faceVisited, fh) ||
-        !isSuggestiveContourFace(mesh, fh, camPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin, &s, &t)) {
+        !isSuggestiveContourFace(mesh, fh, camPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin,
+                                 &start, &end, &start_heh, &end_heh)) {
       continue;
     }
 
-  }
+    contourLinks.push_back(Link());
+    Link& newLink = contourLinks.back();
+    newLink.vertices.push_back(start);
+    newLink.vertices.push_back(end);
+    mesh.property(faceVisited, fh) = true;
 
+    // extend the t end of the link as much as possible
+    while (true) {
+      Vec3f newEnd;
+      Mesh::HalfedgeHandle new_t_heh;
+      // Find a line of kw=0 on this face, if possible
+      Mesh::HalfedgeHandle t_opp_heh = mesh.opposite_halfedge_handle(end_heh);
+      Mesh::HalfedgeHandle t_opp_next_heh = mesh.next_halfedge_handle(t_opp_heh);
+      Mesh::VertexHandle vh0 = mesh.to_vertex_handle(t_opp_heh);
+      Mesh::VertexHandle vh1 = mesh.to_vertex_handle(t_opp_next_heh);
+      double kw0 = mesh.property(viewCurvature, vh0);
+      double kw1 = mesh.property(viewCurvature, vh1);
+      if (kw0 > 0.0 != kw1 > 0.0) {
+        double a = kw0 / (kw0 - kw1);
+        newEnd = (1.0 - a)*mesh.point(vh0) + a*mesh.point(vh1);
+        new_t_heh = t_opp_next_heh;
+      } else {
+        Mesh::HalfedgeHandle t_opp_prev_heh = mesh.prev_halfedge_handle(t_opp_heh);
+        Mesh::VertexHandle vh2 = mesh.to_vertex_handle(t_opp_prev_heh);
+        double kw2 = mesh.property(viewCurvature, vh2);
+        if (kw1 > 0.0 != kw2 > 0.0) {
+          double a = kw1 / (kw1 - kw2);
+          newEnd = (1.0 - a)*mesh.point(vh1) + a*mesh.point(vh2);
+          new_t_heh = t_opp_prev_heh;
+        } else {
+          break;
+        }
+      }
+      if (!isContourLineAcceptable(mesh, fh, end, newEnd, camPos, nDotViewMax, DwkrMin, viewCurvatureDerivative)) {
+        break;
+      }
+      newLink.vertices.push_back(newEnd);
+      end = newEnd;
+      end_heh = new_t_heh;
+    }
+    
+
+    // extend the s end of the link as much as possible
+  }
+  */
 
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;

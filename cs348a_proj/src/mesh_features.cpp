@@ -35,12 +35,28 @@ bool isFeatureEdge(Mesh &mesh, const Mesh::EdgeHandle &e, Vec3f cameraPos) {
   return mesh.is_boundary(e) || isSilhouette(mesh, e, cameraPos) || isSharpEdge(mesh, e);
 }
 
+bool isContourLineAcceptable(Mesh& mesh, Mesh::FaceHandle fh,
+                             const Vec3f& s, const Vec3f& t, const Vec3f& camPos,
+                             float nDotViewMax, float DwkrMin,
+                             FPropHandleT<Vec3f>& viewCurvatureDerivative) {
+  Vec3f toCamera = camPos - 0.5f*(s + t);   // v
+  Vec3f n = mesh.calc_face_normal(fh);
+  if ((n | toCamera.normalized()) > nDotViewMax) {
+    // angle between face normal and is small; bail.
+    return false;
+  }
+  Vec3f w = toCamera - (toCamera | n)*n;    // w is v projected onto tangent plane
+  Vec3f kwGradient = mesh.property(viewCurvatureDerivative, fh);
+  return ((kwGradient | w.normalized()) > DwkrMin);   // reject if Dwkr is negative or too small of a positive; bail.
+}
+
+
 bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actualCamPos, 
                              VPropHandleT<double>& viewCurvature,
                              FPropHandleT<Vec3f>& viewCurvatureDerivative,
                              float nDotViewMax, float DwkrMin,
                              Vec3f* s, Vec3f* t,
-                             Mesh::EdgeHandle* s_edge, Mesh::EdgeHandle* t_edge) {
+                             Mesh::HalfedgeHandle* s_edge, Mesh::HalfedgeHandle* t_edge) {
   Mesh::HalfedgeHandle heh[3];
   double kw[3];
   int numKwPositive = 0, posKwIndex = -1, negKwIndex = -1;
@@ -84,22 +100,14 @@ bool isSuggestiveContourFace(Mesh& mesh, Mesh::FaceHandle fh, const Vec3f& actua
   double a2 = kw0 / (kw0 - kw2);
   Vec3f p2 = (1.0 - a2)*v0 + a2*v2;
 
-  Vec3f toCamera = actualCamPos - 0.5f*(p1 + p2);   // v
-  Vec3f n = mesh.calc_face_normal(fh);
-  if ((n | toCamera.normalized()) > nDotViewMax) {
-    // angle between face normal and is small; bail.
-    return false;
-  }
-  Vec3f w = toCamera - (toCamera | n)*n;    // w is v projected onto tangent plane
-  Vec3f kwGradient = mesh.property(viewCurvatureDerivative, fh);
-  if ((kwGradient | w.normalized()) <= DwkrMin) {
-    // Dwkr is negative or too small of a positive; bail.
+  if (!isContourLineAcceptable(mesh, fh, p1, p2, actualCamPos, nDotViewMax, DwkrMin,
+                               viewCurvatureDerivative)) {
     return false;
   }
 
-  *s = p1;
-  *t = p2;
-  *s_edge = mesh.edge_handle(heh[i1]);
-  *t_edge = mesh.edge_handle(heh[i0]);
-  return false /*true*/;
+  *s = p2;
+  *t = p1;
+  *s_edge = heh[i0];
+  *t_edge = heh[i1];
+  return true;
 }
