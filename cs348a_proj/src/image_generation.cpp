@@ -130,7 +130,7 @@ static Mesh::VertexHandle extendFeatureLinkEnd(Mesh& mesh, Mesh::VertexHandle li
 }
 
 static void generateFeatureLinks(Mesh& mesh, const Vec3f& camPos, EPropHandleT<bool>& edgeVisited,
-                                    vector<Link>* featureLinks) {
+                                 vector<Link>* featureLinks) {
   featureLinks->clear();
 
   // clear all edgeVisited flags
@@ -161,6 +161,85 @@ static void generateFeatureLinks(Mesh& mesh, const Vec3f& camPos, EPropHandleT<b
     // extend the two ends of the link as much as possible
     extendFeatureLinkEnd(mesh, t_vh, &newLink.vertices, &deque<Vec3f>::push_back, camPos, edgeVisited);
     extendFeatureLinkEnd(mesh, s_vh, &newLink.vertices, &deque<Vec3f>::push_front, camPos, edgeVisited);
+  }
+}
+
+static Mesh::HalfedgeHandle extendContourLinkEnd(Mesh& mesh, Vec3f linkEnd, Mesh::HalfedgeHandle linkEnd_heh,
+                                                 const Vec3f& camPos, float nDotViewMax, float DwkrMin,
+                                                 deque<Vec3f>* linkVertices, void(deque<Vec3f>::*dequePushFunc)(const Vec3f&),
+                                                 FPropHandleT<bool>& faceVisited,
+                                                 VPropHandleT<double>& viewCurvature, FPropHandleT<Vec3f>& viewCurvatureDerivative) {
+  // extend the t end of the link as much as possible
+  while (true) {
+    Vec3f newLinkEnd;
+    Mesh::HalfedgeHandle newLinkEnd_heh;
+    // Find a line of kw=0 on this face, if possible
+    Mesh::HalfedgeHandle linkEnd_opp_heh = mesh.opposite_halfedge_handle(linkEnd_heh);
+    Mesh::HalfedgeHandle linkEnd_opp_next_heh = mesh.next_halfedge_handle(linkEnd_opp_heh);
+    Mesh::VertexHandle vh0 = mesh.to_vertex_handle(linkEnd_opp_heh);
+    Mesh::VertexHandle vh1 = mesh.to_vertex_handle(linkEnd_opp_next_heh);
+    double kw0 = mesh.property(viewCurvature, vh0);
+    double kw1 = mesh.property(viewCurvature, vh1);
+    if (kw0 > 0.0 != kw1 > 0.0) {
+      double a = kw0 / (kw0 - kw1);
+      newLinkEnd = (1.0 - a)*mesh.point(vh0) + a*mesh.point(vh1);
+      newLinkEnd_heh = linkEnd_opp_next_heh;
+    } else {
+      Mesh::HalfedgeHandle linkEnd_opp_prev_heh = mesh.prev_halfedge_handle(linkEnd_opp_heh);
+      Mesh::VertexHandle vh2 = mesh.to_vertex_handle(linkEnd_opp_prev_heh);
+      double kw2 = mesh.property(viewCurvature, vh2);
+      if (kw1 > 0.0 != kw2 > 0.0) {
+        double a = kw1 / (kw1 - kw2);
+        newLinkEnd = (1.0 - a)*mesh.point(vh1) + a*mesh.point(vh2);
+        newLinkEnd_heh = linkEnd_opp_prev_heh;
+      } else {
+        break;
+      }
+    }
+    Mesh::FaceHandle linkEnd_opp_fh = mesh.face_handle(linkEnd_opp_heh);
+    mesh.property(faceVisited, linkEnd_opp_fh) = true;
+    if (!isContourLineAcceptable(mesh, linkEnd_opp_fh, linkEnd, newLinkEnd, camPos, nDotViewMax, DwkrMin, viewCurvatureDerivative)) {
+      break;
+    }
+    (linkVertices->*dequePushFunc)(newLinkEnd);
+    linkEnd = newLinkEnd;
+    linkEnd_heh = newLinkEnd_heh;
+  }
+  return linkEnd_heh;
+}
+
+static void generateContourLinks(Mesh &mesh, const Vec3f& camPos,
+                                 float nDotViewMax, float DwkrMin,
+                                 vector<Link>* contourLinks,
+                                 FPropHandleT<bool>& faceVisited,
+                                 VPropHandleT<double>& viewCurvature, FPropHandleT<Vec3f>& viewCurvatureDerivative) {
+  // clear all faceVisited flags
+  Mesh::FaceIter f_it, f_it_end = mesh.faces_end();
+  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
+    mesh.property(faceVisited, *f_it) = false;
+  }
+
+  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
+    Mesh::FaceHandle fh = *f_it;
+    Vec3f s, t;
+    Mesh::HalfedgeHandle s_heh, t_heh;
+    if (mesh.property(faceVisited, fh) ||
+      !isSuggestiveContourFace(mesh, fh, camPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin,
+                               &s, &t, &s_heh, &t_heh)) {
+      continue;
+    }
+
+    contourLinks->push_back(Link());
+    Link& newLink = contourLinks->back();
+    newLink.vertices.push_back(s);
+    newLink.vertices.push_back(t);
+    mesh.property(faceVisited, fh) = true;
+
+    // extend the ends of the link as much as possible
+    extendContourLinkEnd(mesh, t, t_heh, camPos, nDotViewMax, DwkrMin, &newLink.vertices, &deque<Vec3f>::push_back,
+                         faceVisited, viewCurvature, viewCurvatureDerivative);
+    extendContourLinkEnd(mesh, s, s_heh, camPos, nDotViewMax, DwkrMin, &newLink.vertices, &deque<Vec3f>::push_front,
+                         faceVisited, viewCurvature, viewCurvatureDerivative);
   }
 }
 
@@ -280,72 +359,15 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
 
   vector<Link> featureLinks;
   generateFeatureLinks(mesh, camPos, edgeVisited, &featureLinks);
-  vector<Link> visibleSilhouetteLinks;
-  generateVisibleLinks(featureLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleSilhouetteLinks);
+  vector<Link> visibleFeatureLinks;
+  generateVisibleLinks(featureLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleFeatureLinks);
   
-  /*vector<Link> contourLinks;
-
-  // clear all faceVisited flags
-  Mesh::FaceIter f_it, f_it_end = mesh.faces_end();
-  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
-    mesh.property(faceVisited, *f_it) = false;
-  }
-
-  for (f_it = mesh.faces_begin(); f_it != f_it_end; ++f_it) {
-    Mesh::FaceHandle fh = *f_it;
-    Vec3f start, end;
-    Mesh::HalfedgeHandle start_heh, end_heh;
-    if (mesh.property(faceVisited, fh) ||
-        !isSuggestiveContourFace(mesh, fh, camPos, viewCurvature, viewCurvatureDerivative, nDotViewMax, DwkrMin,
-                                 &start, &end, &start_heh, &end_heh)) {
-      continue;
-    }
-
-    contourLinks.push_back(Link());
-    Link& newLink = contourLinks.back();
-    newLink.vertices.push_back(start);
-    newLink.vertices.push_back(end);
-    mesh.property(faceVisited, fh) = true;
-
-    // extend the t end of the link as much as possible
-    while (true) {
-      Vec3f newEnd;
-      Mesh::HalfedgeHandle new_t_heh;
-      // Find a line of kw=0 on this face, if possible
-      Mesh::HalfedgeHandle t_opp_heh = mesh.opposite_halfedge_handle(end_heh);
-      Mesh::HalfedgeHandle t_opp_next_heh = mesh.next_halfedge_handle(t_opp_heh);
-      Mesh::VertexHandle vh0 = mesh.to_vertex_handle(t_opp_heh);
-      Mesh::VertexHandle vh1 = mesh.to_vertex_handle(t_opp_next_heh);
-      double kw0 = mesh.property(viewCurvature, vh0);
-      double kw1 = mesh.property(viewCurvature, vh1);
-      if (kw0 > 0.0 != kw1 > 0.0) {
-        double a = kw0 / (kw0 - kw1);
-        newEnd = (1.0 - a)*mesh.point(vh0) + a*mesh.point(vh1);
-        new_t_heh = t_opp_next_heh;
-      } else {
-        Mesh::HalfedgeHandle t_opp_prev_heh = mesh.prev_halfedge_handle(t_opp_heh);
-        Mesh::VertexHandle vh2 = mesh.to_vertex_handle(t_opp_prev_heh);
-        double kw2 = mesh.property(viewCurvature, vh2);
-        if (kw1 > 0.0 != kw2 > 0.0) {
-          double a = kw1 / (kw1 - kw2);
-          newEnd = (1.0 - a)*mesh.point(vh1) + a*mesh.point(vh2);
-          new_t_heh = t_opp_prev_heh;
-        } else {
-          break;
-        }
-      }
-      if (!isContourLineAcceptable(mesh, fh, end, newEnd, camPos, nDotViewMax, DwkrMin, viewCurvatureDerivative)) {
-        break;
-      }
-      newLink.vertices.push_back(newEnd);
-      end = newEnd;
-      end_heh = new_t_heh;
-    }
-    
-
-    // extend the s end of the link as much as possible
-  }
-  */
+  vector<Link> contourLinks;
+  generateContourLinks(mesh, camPos, nDotViewMax, DwkrMin, &contourLinks,
+                       faceVisited, viewCurvature, viewCurvatureDerivative);
+  //vector<Link> visibleContourLinks;
+  //generateVisibleLinks(contourLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleContourLinks);
+  
 
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
@@ -360,11 +382,9 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
                               "<g stroke=\"olivedrab\" fill=\"black\">",
                               "<g stroke=\"deepskyblue\" fill=\"black\">" };
 
-  for (int i = 0; i < visibleSilhouetteLinks.size(); i++) {
-    Link& link = visibleSilhouetteLinks[i];
-
-    outfile << strokeStrings[i % 8] << endl;
-
+  for (int i = 0; i < visibleFeatureLinks.size(); i++) {
+    Link& link = visibleFeatureLinks[i];
+    outfile << strokeStrings[0] << endl;
     for (int i = 1; i < link.vertices.size(); i++) {
       Vec3f source = link.vertices[i - 1];
       Vec3f dest = link.vertices[i];
@@ -376,7 +396,23 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
       outfile << "x2=\"" << p2[0] << "\" ";
       outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
     }
+    outfile << "</g>" << endl;
+  }
 
+  for (int i = 0; i < contourLinks.size(); i++) {
+    Link& link = contourLinks[i];
+    outfile << strokeStrings[i % 8] << endl;
+    for (int i = 1; i < link.vertices.size(); i++) {
+      Vec3f source = link.vertices[i - 1];
+      Vec3f dest = link.vertices[i];
+      Vec3f p1 = toImagePlane(source);
+      Vec3f p2 = toImagePlane(dest);
+      outfile << "\t<line ";
+      outfile << "x1=\"" << p1[0] << "\" ";
+      outfile << "y1=\"" << height - p1[1] << "\" ";
+      outfile << "x2=\"" << p2[0] << "\" ";
+      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
+    }
     outfile << "</g>" << endl;
   }
   
