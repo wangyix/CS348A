@@ -42,7 +42,6 @@ Vec2f toImagePlane(Vec3f point, float* depth) {
   return Vec2f(point2DX, point2DY);
 }
 
-const GLdouble EPSILON = 0.01;
 
 /*// Adapted from
 // http://stackoverflow.com/questions/1311869/opengl-how-to-determine-if-a-3d-rendered-point-is-occluded-by-other-3d-rende
@@ -57,9 +56,9 @@ bool isVisible(Vec3f point) {
   return (bufDepth - projected[2]) > -EPSILON; // check sign!
 }*/
 
-bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, int height) {
+bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   if (!(0 <= point_proj[0] && point_proj[0] < width && 0 <= point_proj[1] && point_proj[1] < height)) return false;
-  return (depthBuffer[((int)point_proj[1]) * width + (int)point_proj[0]] - point_proj[2]) > -EPSILON;
+  return (depthBuffer[((int)point_proj[1]) * width + (int)point_proj[0]] - point_proj[2]) > -epsilon;
 
   /*GLfloat bufDepth = 0.0;
   glReadPixels(static_cast<GLint>(point_proj[0]), static_cast<GLint>(point_proj[1]),
@@ -67,9 +66,9 @@ bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, i
   return bufDepth - point_proj[2] > -EPSILON;*/
 }
 
-bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* depthBuffer, int width, int height) {
+bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   if (!(0 <= point_proj_xy[0] && point_proj_xy[0] < width && 0 <= point_proj_xy[1] && point_proj_xy[1] < height)) return false;
-  return (depthBuffer[((int)point_proj_xy[1]) * width + (int)point_proj_xy[0]] - point_depth) > -EPSILON;
+  return (depthBuffer[((int)point_proj_xy[1]) * width + (int)point_proj_xy[0]] - point_depth) > -epsilon;
 
   /*GLfloat bufDepth = 0.0;
   glReadPixels(static_cast<GLint>(point_proj_xy[0]), static_cast<GLint>(point_proj_xy[1]),
@@ -77,7 +76,7 @@ bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* dep
   return bufDepth - point_depth > -EPSILON;*/
 }
 
-Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const GLfloat* depthBuffer, int width, int height) {
+Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   Vec3f a = visible;
   Vec3f b = occluded;
   float unused;
@@ -87,7 +86,7 @@ Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const 
     Vec3f c = 0.5f * (a + b);
     float c_depth;
     Vec2f c_proj = toImagePlane(c, &c_depth);
-    bool cIsVisible = isVisible(c_proj, c_depth,  &depthBuffer[0], width, height);
+    bool cIsVisible = isVisible(c_proj, c_depth, &depthBuffer[0], width, height, epsilon);
     if (cIsVisible) {
       a = c;
       a_proj = c_proj;
@@ -260,7 +259,7 @@ static void generateContourLinks(Mesh &mesh, const Vec3f& camPos,
 }
 
 static void generateVisibleLinks(const vector<Link> links,
-                                 const GLfloat* depthBuffer, int width, int height,
+                                 const GLfloat* depthBuffer, int width, int height, float epsilon,
                                  const Vec3f& camPos, const Vec3f& camLookDir,
                                  vector<Link>* visibleLinks) {
   visibleLinks->clear();
@@ -268,7 +267,7 @@ static void generateVisibleLinks(const vector<Link> links,
   for (const Link& link : links) {
 
     Vec3f start = link.vertices.front();
-    bool startVisible = isVisible(toImagePlane(start), &depthBuffer[0], width, height);
+    bool startVisible = isVisible(toImagePlane(start), &depthBuffer[0], width, height, epsilon);
     int firstLinkAt = -1;
     if (startVisible) {
       firstLinkAt = visibleLinks->size();
@@ -297,7 +296,7 @@ static void generateVisibleLinks(const vector<Link> links,
         float b = i / (float)(numSegments);
         float a = b*w_s / ((1.f - b)*w_t + b*w_s);
         Vec3f samplePos = (1.f - a)*s + a*t;
-        bool samplePosVisible = isVisible(toImagePlane(samplePos), &depthBuffer[0], width, height);
+        bool samplePosVisible = isVisible(toImagePlane(samplePos), &depthBuffer[0], width, height, epsilon);
 
         /*float unused;               // debug code to check screen-space lengths of segments
         Vec2f vertexProj = toImagePlane(vertex, &unused);
@@ -309,7 +308,7 @@ static void generateVisibleLinks(const vector<Link> links,
           if (samplePosVisible) {
             newEnd = samplePos;
           } else {
-            newEnd = findVisibilityBoundary(prevSamplePos, samplePos, &depthBuffer[0], width, height);
+            newEnd = findVisibilityBoundary(prevSamplePos, samplePos, &depthBuffer[0], width, height, epsilon);
           }
           // Extend the current link
           if (linkEndsOnThisEdge) {
@@ -326,7 +325,7 @@ static void generateVisibleLinks(const vector<Link> links,
           if (samplePosVisible) {
             // Start a new link
             visibleLinks->push_back(Link());
-            Vec3f newStart = findVisibilityBoundary(samplePos, prevSamplePos, &depthBuffer[0], width, height);
+            Vec3f newStart = findVisibilityBoundary(samplePos, prevSamplePos, &depthBuffer[0], width, height, epsilon);
             visibleLinks->back().vertices.push_back(newStart);
             visibleLinks->back().vertices.push_back(samplePos);
             linkEndsOnThisEdge = true;
@@ -365,7 +364,7 @@ static void generateVisibleLinks(const vector<Link> links,
 
 void writeImage(Mesh &mesh, int width, int height, const string& filename,
                 const Vec3f& camPos, const Vec3f& camLookDir,
-                float nDotViewMax, float DwkrMin,
+                float nDotViewMax, float DwkrMin, float epsilon,
                 EPropHandleT<bool>& edgeVisited, FPropHandleT<bool>& faceVisited,
                 VPropHandleT<double>& viewCurvature, FPropHandleT<Vec3f>& viewCurvatureDerivative) {
 
@@ -376,13 +375,13 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   vector<Link> featureLinks;
   generateFeatureLinks(mesh, camPos, edgeVisited, &featureLinks);
   vector<Link> visibleFeatureLinks;
-  generateVisibleLinks(featureLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleFeatureLinks);
+  generateVisibleLinks(featureLinks, &depthBuffer[0], width, height, epsilon, camPos, camLookDir, &visibleFeatureLinks);
   
   vector<Link> contourLinks;
   generateContourLinks(mesh, camPos, nDotViewMax, DwkrMin, &contourLinks,
                        faceVisited, viewCurvature, viewCurvatureDerivative);
   vector<Link> visibleContourLinks;
-  generateVisibleLinks(contourLinks, &depthBuffer[0], width, height, camPos, camLookDir, &visibleContourLinks);
+  generateVisibleLinks(contourLinks, &depthBuffer[0], width, height, epsilon, camPos, camLookDir, &visibleContourLinks);
   
 
   ofstream outfile(filename.c_str());

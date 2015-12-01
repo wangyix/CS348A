@@ -30,6 +30,7 @@ Vec3f up, pan;
 int windowWidth = 640, windowHeight = 480;
 bool showSurface = true, showAxes = true, showCurvature = false, showNormals = false, showEdges = false;
 float nDotViewMax = 0.6f, DwkrMin = 1.f;
+float epsilon = 0.005f;
 
 float specular[] = { 1.0, 1.0, 1.0, 1.0 };
 float shininess[] = { 50.0 };
@@ -278,6 +279,12 @@ void keyboard(unsigned char key, int x, int y) {
   } else if (key == '4') {
     DwkrMin *= 1.05f;
     printf("DwkrMin = %f\n", DwkrMin);
+  } else if (key == '5') {
+    epsilon /= 1.05f;
+    printf("epsilon = %f\n", epsilon);
+  } else if (key == '6') {
+    epsilon *= 1.05f;
+    printf("epsilon = %f\n", epsilon);
   }
   else if (key == 'd' || key == 'D') {
     float percentage = 1.0f;
@@ -291,7 +298,7 @@ void keyboard(unsigned char key, int x, int y) {
     Vec3f cameraLookDir(-cameraPos[0], -cameraPos[1], -cameraPos[2]);
     cameraLookDir.normalize();
     writeImage(mesh, windowWidth, windowHeight, "renderedImage.svg", actualCamPos, cameraLookDir,
-               nDotViewMax, DwkrMin, edgeVisited, faceVisited, viewCurvature, viewCurvatureDerivative);
+               nDotViewMax, DwkrMin, epsilon, edgeVisited, faceVisited, viewCurvature, viewCurvatureDerivative);
   }
   else if (key == 'q' || key == 'Q') exit(0);
   glutPostRedisplay();
