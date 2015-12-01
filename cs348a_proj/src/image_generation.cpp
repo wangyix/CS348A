@@ -293,22 +293,22 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
   }
 
   ofstream outfile(filename.c_str());
-  outfile << "<?xml version=\"1.0\" standalone=\"no\"?>\n";
-  outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">\n";
+  outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
+  outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">" << endl;
 
-  string strokeStrings[8] = { "<g stroke=\"black\" fill=\"black\">\n",
-                              "<g stroke=\"red\" fill=\"black\">\n",
-                              "<g stroke=\"blue\" fill=\"black\">\n",
-                              "<g stroke=\"magenta\" fill=\"black\">\n",
-                              "<g stroke=\"orange\" fill=\"black\">\n",
-                              "<g stroke=\"deeppink\" fill=\"black\">\n",
-                              "<g stroke=\"olivedrab\" fill=\"black\">\n"
-                              "<g stroke=\"deepskyblue\" fill=\"black\">\n" };
+  char* strokeStrings[8] = { "<g stroke=\"black\" fill=\"black\">",
+                              "<g stroke=\"red\" fill=\"black\">",
+                              "<g stroke=\"blue\" fill=\"black\">",
+                              "<g stroke=\"magenta\" fill=\"black\">",
+                              "<g stroke=\"orange\" fill=\"black\">",
+                              "<g stroke=\"deeppink\" fill=\"black\">",
+                              "<g stroke=\"olivedrab\" fill=\"black\">",
+                              "<g stroke=\"deepskyblue\" fill=\"black\">" };
 
   for (int i = 0; i < visibleLinks.size(); i++) {
     Link& link = visibleLinks[i];
 
-    outfile << strokeStrings[i % 8];
+    outfile << strokeStrings[i % 8] << endl;
 
     for (int i = 0; i < link.halfEdges.size(); i++) {
       Mesh::HalfedgeHandle heh = link.halfEdges[i];
@@ -325,13 +325,13 @@ void writeImage(Mesh &mesh, int width, int height, string filename,
       outfile << "x1=\"" << p1[0] << "\" ";
       outfile << "y1=\"" << height - p1[1] << "\" ";
       outfile << "x2=\"" << p2[0] << "\" ";
-      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />\n";
+      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
     }
 
-    outfile << "</g>\n";
+    outfile << "</g>" << endl;
   }
   
-  outfile << "</svg>\n";
+  outfile << "</svg>" << endl;
   outfile.close();
 
   std::cout << filename << " written" << std::endl;
