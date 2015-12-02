@@ -439,14 +439,14 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   vector<Vec2f> imagePoints;
   for (int i = 0; i < visibleFeatureLinks.size(); i++) {
     Link& link = visibleFeatureLinks[i];
-    outfile << "<g stroke=\"black\" fill=\"none\">" << endl;
+    outfile << "<g stroke=\"black\" stroke-linecap=\"round\" fill=\"none\">" << endl;
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
     outfile << "</g>" << endl;
   }
   for (int i = 0; i < visibleContourLinks.size(); i++) {
     Link& link = visibleContourLinks[i];
-    outfile << "<g stroke=\"grey\" fill=\"none\">" << endl;
+    outfile << "<g stroke=\"grey\" stroke-linecap=\"round\" fill=\"none\">" << endl;
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
     outfile << "</g>" << endl;
