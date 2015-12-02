@@ -448,21 +448,11 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
   outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">" << endl;
 
-  char* strokeStrings[8] = { "<g stroke=\"black\" fill=\"none\">",
-                              "<g stroke=\"red\" fill=\"none\">",
-                              "<g stroke=\"blue\" fill=\"none\">",
-                              "<g stroke=\"magenta\" fill=\"none\">",
-                              "<g stroke=\"orange\" fill=\"none\">",
-                              "<g stroke=\"deeppink\" fill=\"none\">",
-                              "<g stroke=\"olivedrab\" fill=\"none\">",
-                              "<g stroke=\"deepskyblue\" fill=\"none\">" };
-
-
   vector<Vec2f> imagePoints;
   for (int i = 0; i < visibleFeatureLinks.size(); i++) {
     Link& link = visibleFeatureLinks[i];
 
-    outfile << strokeStrings[i % 8] << endl;
+    outfile << "<g stroke=\"black\" fill=\"none\">" << endl;
 
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
@@ -472,7 +462,7 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   for (int i = 0; i < visibleContourLinks.size(); i++) {
     Link& link = visibleContourLinks[i];
 
-    outfile << strokeStrings[i % 8] << endl;
+    outfile << "<g stroke=\"grey\" fill=\"none\">" << endl;
 
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
