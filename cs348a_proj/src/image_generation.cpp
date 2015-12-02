@@ -388,7 +388,8 @@ static void writeCatmullRomSpline(ofstream& outfile, const vector<Vec2f>& points
       const Vec2f& pPrev = points[i - 1];
       const Vec2f& p = points[i];
       const Vec2f& pNext = points[i + 1];
-      Vec2f m = (pNext - pPrev) / 2.f;//(sqrtf((pNext - p).norm()) + sqrtf((p - pPrev).norm()));  // centripetal (alpha = 0.5)
+      Vec2f m = (pNext - pPrev) / 2.f;                // uniform (alpha = 0)
+      //Vec2f m = (pNext - pPrev) / (sqrtf((pNext - p).norm()) + sqrtf((p - pPrev).norm()));  // centripetal (alpha = 0.5)
       if (i == 1) {
         // Quadratic curve to start: Bezier ctrl pts are pPrev, p - m/2, p
         Vec2f q = p - m / 2.f;
@@ -466,17 +467,16 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
 
-    /*for (int i = 1; i < link.vertices.size(); i++) {
-      Vec3f source = link.vertices[i - 1];
-      Vec3f dest = link.vertices[i];
-      Vec3f p1 = toImagePlane(source);
-      Vec3f p2 = toImagePlane(dest);
-      outfile << "\t<line ";
-      outfile << "x1=\"" << p1[0] << "\" ";
-      outfile << "y1=\"" << height - p1[1] << "\" ";
-      outfile << "x2=\"" << p2[0] << "\" ";
-      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
-    }*/
+    outfile << "</g>" << endl;
+  }
+  for (int i = 0; i < visibleContourLinks.size(); i++) {
+    Link& link = visibleContourLinks[i];
+
+    outfile << strokeStrings[i % 8] << endl;
+
+    toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
+    writeCatmullRomSpline(outfile, imagePoints);
+
     outfile << "</g>" << endl;
   }
 
