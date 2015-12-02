@@ -11,7 +11,7 @@
 using namespace OpenMesh;
 using namespace std;
 
-Vec3f toImagePlane(Vec3f point) {
+static Vec3f toImagePlane(Vec3f point) {
   GLdouble point3DX = point[0], point3DY = point[1], point3DZ = point[2];
 
   GLdouble modelMatrix[16], projMatrix[16];
@@ -26,7 +26,7 @@ Vec3f toImagePlane(Vec3f point) {
   return Vec3f(point2DX,point2DY,point2DZ);
 }
 
-Vec2f toImagePlane(Vec3f point, float* depth) {
+static Vec2f toImagePlane(Vec3f point, float* depth) {
   GLdouble point3DX = point[0], point3DY = point[1], point3DZ = point[2];
 
   GLdouble modelMatrix[16], projMatrix[16];
@@ -40,6 +40,22 @@ Vec2f toImagePlane(Vec3f point, float* depth) {
 
   *depth = point2DZ;
   return Vec2f(point2DX, point2DY);
+}
+
+static void toImagePlaneInvertHeight(const deque<Vec3f>& points, int height, vector<Vec2f>* projPoints) {
+  GLdouble modelMatrix[16], projMatrix[16];
+  GLint viewport[4];
+  glGetDoublev(GL_MODELVIEW_MATRIX, modelMatrix);
+  glGetDoublev(GL_PROJECTION_MATRIX, projMatrix);
+  glGetIntegerv(GL_VIEWPORT, viewport);
+
+  projPoints->resize(points.size());
+  for (int i = 0; i < points.size(); ++i) {
+    GLdouble point3DX = points[i][0], point3DY = points[i][1], point3DZ = points[i][2];
+    GLdouble point2DX, point2DY, point2DZ;
+    gluProject(point3DX, point3DY, point3DZ, modelMatrix, projMatrix, viewport, &point2DX, &point2DY, &point2DZ);
+    projPoints->at(i) = Vec2f(point2DX, height - 1 - point2DY);
+  }
 }
 
 
@@ -56,7 +72,7 @@ bool isVisible(Vec3f point) {
   return (bufDepth - projected[2]) > -EPSILON; // check sign!
 }*/
 
-bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, int height, float epsilon) {
+static bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   if (!(0 <= point_proj[0] && point_proj[0] < width && 0 <= point_proj[1] && point_proj[1] < height)) return false;
   return (depthBuffer[((int)point_proj[1]) * width + (int)point_proj[0]] - point_proj[2]) > -epsilon;
 
@@ -66,7 +82,7 @@ bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, i
   return bufDepth - point_proj[2] > -EPSILON;*/
 }
 
-bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* depthBuffer, int width, int height, float epsilon) {
+static bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   if (!(0 <= point_proj_xy[0] && point_proj_xy[0] < width && 0 <= point_proj_xy[1] && point_proj_xy[1] < height)) return false;
   return (depthBuffer[((int)point_proj_xy[1]) * width + (int)point_proj_xy[0]] - point_depth) > -epsilon;
 
@@ -76,7 +92,7 @@ bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* dep
   return bufDepth - point_depth > -EPSILON;*/
 }
 
-Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const GLfloat* depthBuffer, int width, int height, float epsilon) {
+static Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   Vec3f a = visible;
   Vec3f b = occluded;
   float unused;
@@ -290,7 +306,7 @@ static void generateVisibleLinks(const vector<Link> links,
 
       // split edge into segments of equal length in screen-space.
       const float MAX_EDGE_SEG_LENGTH = 4.f;  // measured in pixels in screenspace
-      int numSegments = ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
+      int numSegments = 2;            //ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
       bool linkEndsOnThisEdge = false;
       for (int i = 1; i <= numSegments; i++) {
         float b = i / (float)(numSegments);
@@ -362,6 +378,47 @@ static void generateVisibleLinks(const vector<Link> links,
 }
 
 
+static void writeCatmullRomSpline(ofstream& outfile, const vector<Vec2f>& points) {
+  if (points.size() == 2) {
+    outfile << "\t<line x1=\"" << points[0][0] << "\" y1=\"" << points[0][1]
+            << "\" x2=\"" << points[1][0] << "\" y2=\"" << points[1][1] << "\" stroke-width=\"1\" />" << endl;
+  } else if (points.size() > 2) {
+    Vec2f mPrev;
+    for (int i = 1; i < points.size() - 1; ++i) {
+      const Vec2f& pPrev = points[i - 1];
+      const Vec2f& p = points[i];
+      const Vec2f& pNext = points[i + 1];
+      Vec2f m = (pNext - pPrev) / 2.f;//(sqrtf((pNext - p).norm()) + sqrtf((p - pPrev).norm()));  // centripetal (alpha = 0.5)
+      if (i == 1) {
+        // Quadratic curve to start: Bezier ctrl pts are pPrev, p - m/2, p
+        Vec2f q = p - m / 2.f;
+        outfile << "\t<path d=\"M " << pPrev[0] << " " << pPrev[1]
+          << " Q " << q[0] << " " << q[1] << ", " << p[0] << " " << p[1] << "\" stroke-width=\"1\" />" << endl;
+      } else {
+        // Bezier ctrl pts are pPrev, pPrev + mPrev/3, p - m/3, p
+        Vec2f c2 = p - m / 3.f;
+        if (i == 2) {
+          Vec2f c1 = pPrev + mPrev / 3.f;
+          outfile << "\t<path d=\"M " << pPrev[0] << " " << pPrev[1];
+          outfile << endl << "\t\tC " << c1[0] << " " << c1[1] << ", " << c2[0] << " " << c2[1] << ", " << p[0] << " " << p[1];
+        } else {
+          outfile << endl << "\t\tS " << c2[0] << " " << c2[1] << ", " << p[0] << " " << p[1];
+        }
+      }
+      mPrev = m;
+    }
+    if (points.size() > 3) {
+      outfile << "\"" << endl << "\tstroke-width=\"1\" />" << endl;
+    }
+    // Quadratic curve to end: Bezier ctrl pts are pPrev, pPrev + mPrev/2, p
+    const Vec2f& pPrev = points[points.size() - 2];
+    const Vec2f& p = points[points.size() - 1];
+    const Vec2f& q = pPrev + mPrev / 2.f;
+    outfile << "\t<path d=\"M " << pPrev[0] << " " << pPrev[1]
+      << " Q " << q[0] << " " << q[1] << ", " << p[0] << " " << p[1] << "\" stroke-width=\"1\" />" << endl;
+  }
+}
+
 void writeImage(Mesh &mesh, int width, int height, const string& filename,
                 const Vec3f& camPos, const Vec3f& camLookDir,
                 float nDotViewMax, float DwkrMin, float epsilon,
@@ -384,20 +441,47 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   generateVisibleLinks(contourLinks, &depthBuffer[0], width, height, epsilon, camPos, camLookDir, &visibleContourLinks);
   
 
+
+
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
   outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">" << endl;
 
-  char* strokeStrings[8] = { "<g stroke=\"black\" fill=\"black\">",
-                              "<g stroke=\"red\" fill=\"black\">",
-                              "<g stroke=\"blue\" fill=\"black\">",
-                              "<g stroke=\"magenta\" fill=\"black\">",
-                              "<g stroke=\"orange\" fill=\"black\">",
-                              "<g stroke=\"deeppink\" fill=\"black\">",
-                              "<g stroke=\"olivedrab\" fill=\"black\">",
-                              "<g stroke=\"deepskyblue\" fill=\"black\">" };
+  char* strokeStrings[8] = { "<g stroke=\"black\" fill=\"none\">",
+                              "<g stroke=\"red\" fill=\"none\">",
+                              "<g stroke=\"blue\" fill=\"none\">",
+                              "<g stroke=\"magenta\" fill=\"none\">",
+                              "<g stroke=\"orange\" fill=\"none\">",
+                              "<g stroke=\"deeppink\" fill=\"none\">",
+                              "<g stroke=\"olivedrab\" fill=\"none\">",
+                              "<g stroke=\"deepskyblue\" fill=\"none\">" };
 
+
+  vector<Vec2f> imagePoints;
   for (int i = 0; i < visibleFeatureLinks.size(); i++) {
+    Link& link = visibleFeatureLinks[i];
+
+    outfile << strokeStrings[i % 8] << endl;
+
+    toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
+    writeCatmullRomSpline(outfile, imagePoints);
+
+    /*for (int i = 1; i < link.vertices.size(); i++) {
+      Vec3f source = link.vertices[i - 1];
+      Vec3f dest = link.vertices[i];
+      Vec3f p1 = toImagePlane(source);
+      Vec3f p2 = toImagePlane(dest);
+      outfile << "\t<line ";
+      outfile << "x1=\"" << p1[0] << "\" ";
+      outfile << "y1=\"" << height - p1[1] << "\" ";
+      outfile << "x2=\"" << p2[0] << "\" ";
+      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
+    }*/
+    outfile << "</g>" << endl;
+  }
+
+
+  /*for (int i = 0; i < visibleFeatureLinks.size(); i++) {
     Link& link = visibleFeatureLinks[i];
     outfile << strokeStrings[0] << endl;
     for (int i = 1; i < link.vertices.size(); i++) {
@@ -412,24 +496,7 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
       outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
     }
     outfile << "</g>" << endl;
-  }
-
-  for (int i = 0; i < visibleContourLinks.size(); i++) {
-    Link& link = visibleContourLinks[i];
-    outfile << strokeStrings[i % 8] << endl;
-    for (int i = 1; i < link.vertices.size(); i++) {
-      Vec3f source = link.vertices[i - 1];
-      Vec3f dest = link.vertices[i];
-      Vec3f p1 = toImagePlane(source);
-      Vec3f p2 = toImagePlane(dest);
-      outfile << "\t<line ";
-      outfile << "x1=\"" << p1[0] << "\" ";
-      outfile << "y1=\"" << height - p1[1] << "\" ";
-      outfile << "x2=\"" << p2[0] << "\" ";
-      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
-    }
-    outfile << "</g>" << endl;
-  }
+  }*/
   
   outfile << "</svg>" << endl;
   outfile.close();
