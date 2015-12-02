@@ -75,21 +75,11 @@ bool isVisible(Vec3f point) {
 static bool isVisible(const Vec3f& point_proj, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   if (!(0 <= point_proj[0] && point_proj[0] < width && 0 <= point_proj[1] && point_proj[1] < height)) return false;
   return (depthBuffer[((int)point_proj[1]) * width + (int)point_proj[0]] - point_proj[2]) > -epsilon;
-
-  /*GLfloat bufDepth = 0.0;
-  glReadPixels(static_cast<GLint>(point_proj[0]), static_cast<GLint>(point_proj[1]),
-    1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &bufDepth);
-  return bufDepth - point_proj[2] > -EPSILON;*/
 }
 
 static bool isVisible(const Vec2f& point_proj_xy, float point_depth, const GLfloat* depthBuffer, int width, int height, float epsilon) {
   if (!(0 <= point_proj_xy[0] && point_proj_xy[0] < width && 0 <= point_proj_xy[1] && point_proj_xy[1] < height)) return false;
   return (depthBuffer[((int)point_proj_xy[1]) * width + (int)point_proj_xy[0]] - point_depth) > -epsilon;
-
-  /*GLfloat bufDepth = 0.0;
-  glReadPixels(static_cast<GLint>(point_proj_xy[0]), static_cast<GLint>(point_proj_xy[1]),
-    1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &bufDepth);
-  return bufDepth - point_depth > -EPSILON;*/
 }
 
 static Vec3f findVisibilityBoundary(const Vec3f& visible, const Vec3f& occluded, const GLfloat* depthBuffer, int width, int height, float epsilon) {
@@ -305,8 +295,8 @@ static void generateVisibleLinks(const vector<Link> links,
       float w_t = (t - camPos) | camLookDir;
 
       // split edge into segments of equal length in screen-space.
-      const float MAX_EDGE_SEG_LENGTH = 4.f;  // measured in pixels in screenspace
-      int numSegments = 2;            //ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
+      const float MAX_EDGE_SEG_LENGTH = min(width, height) / 20.f;    // measured in pixels in screenspace
+      int numSegments = ceilf((t_proj - s_proj).length() / MAX_EDGE_SEG_LENGTH);
       bool linkEndsOnThisEdge = false;
       for (int i = 1; i <= numSegments; i++) {
         float b = i / (float)(numSegments);
@@ -442,8 +432,6 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   generateVisibleLinks(contourLinks, &depthBuffer[0], width, height, epsilon, camPos, camLookDir, &visibleContourLinks);
   
 
-
-
   ofstream outfile(filename.c_str());
   outfile << "<?xml version=\"1.0\" standalone=\"no\"?>" << endl;
   outfile << "<svg width=\"5in\" height=\"5in\" viewBox=\"0 0 " << width << ' ' << height << "\">" << endl;
@@ -451,43 +439,19 @@ void writeImage(Mesh &mesh, int width, int height, const string& filename,
   vector<Vec2f> imagePoints;
   for (int i = 0; i < visibleFeatureLinks.size(); i++) {
     Link& link = visibleFeatureLinks[i];
-
     outfile << "<g stroke=\"black\" fill=\"none\">" << endl;
-
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
-
     outfile << "</g>" << endl;
   }
   for (int i = 0; i < visibleContourLinks.size(); i++) {
     Link& link = visibleContourLinks[i];
-
     outfile << "<g stroke=\"grey\" fill=\"none\">" << endl;
-
     toImagePlaneInvertHeight(link.vertices, height, &imagePoints);
     writeCatmullRomSpline(outfile, imagePoints);
-
     outfile << "</g>" << endl;
   }
 
-
-  /*for (int i = 0; i < visibleFeatureLinks.size(); i++) {
-    Link& link = visibleFeatureLinks[i];
-    outfile << strokeStrings[0] << endl;
-    for (int i = 1; i < link.vertices.size(); i++) {
-      Vec3f source = link.vertices[i - 1];
-      Vec3f dest = link.vertices[i];
-      Vec3f p1 = toImagePlane(source);
-      Vec3f p2 = toImagePlane(dest);
-      outfile << "\t<line ";
-      outfile << "x1=\"" << p1[0] << "\" ";
-      outfile << "y1=\"" << height - p1[1] << "\" ";
-      outfile << "x2=\"" << p2[0] << "\" ";
-      outfile << "y2=\"" << height - p2[1] << "\" stroke-width=\"1\" />" << endl;
-    }
-    outfile << "</g>" << endl;
-  }*/
-  
   outfile << "</svg>" << endl;
   outfile.close();
 

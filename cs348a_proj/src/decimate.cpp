@@ -125,8 +125,8 @@ double compute_priority(Mesh& _mesh, const Mesh::HalfedgeHandle _heh) {
   // with vertex s. 
   Vec3f t_temp = _mesh.point(_mesh.to_vertex_handle(_heh));
   Vector4d t(t_temp[0], t_temp[1], t_temp[2], 1.0);
-  Mesh::VertexHandle vh_s = _mesh.from_vertex_handle(_heh);
-  priority = t.transpose() * vertex_quadric(_mesh, vh_s) * t;
+  Mesh::VertexHandle s_vh = _mesh.from_vertex_handle(_heh);
+  priority = t.transpose() * vertex_quadric(_mesh, s_vh) * t;
 
   // -------------------------------------------------------------------------------------------------------------
 

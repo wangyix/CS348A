@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
     for (Mesh::VertexIter v_it = mesh.vertices_begin(); v_it != mesh.vertices_end(); ++v_it)
       mesh.point(*v_it) /= maxLength;
   }
-                                                            simplify(mesh, 0.5, "output.off");    // TESTOESTESTSTS!!!!!!!!
+  
   computeCurvature(mesh, curvature);
 
   up = Vec3f(0, 1, 0);
