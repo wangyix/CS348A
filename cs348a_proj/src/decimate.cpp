@@ -235,26 +235,26 @@ void decimate(Mesh& _mesh, const unsigned int _target_num_vertices) {
   for (int i = 0; i < numVerticesToRemove; i++) {
     // Pop from queue until a vertex with valid priority and valid collapse is reached.  This removes stale
     // VertexPriorities from the queue.
-    VertexPriority& vp = queue.top();
-    while (!is_vertex_priority_valid(_mesh, vp) || !is_collapse_valid(_mesh, vp.heh_)) {
+    const VertexPriority* vp = &queue.top();
+    while (!is_vertex_priority_valid(_mesh, *vp) || !is_collapse_valid(_mesh, vp->heh_)) {
       queue.pop();
-      vp = queue.top();
+      vp = &queue.top();
     }
 
-    Mesh::VertexHandle vh_s = vp.vh_;
-    Mesh::VertexHandle vh_t = _mesh.to_vertex_handle(vp.heh_);
+    Mesh::VertexHandle s_vh = vp->vh_;
+    Mesh::VertexHandle t_vh = _mesh.to_vertex_handle(vp->heh_);
 
     // Record all neighbor vertices of s; these are the vertices whose priorities
     // need to be updated.
     std::vector<Mesh::VertexHandle> updateVertices;
-    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(vh_s); vv_it; ++vv_it) {
+    for (Mesh::VertexVertexIter vv_it = _mesh.vv_iter(s_vh); vv_it; ++vv_it) {
       updateVertices.push_back(*vv_it);
     }
 
     // Update vertex t's Q matrix
-    vertex_quadric(_mesh, vh_t) += vertex_quadric(_mesh, vh_s);
+    vertex_quadric(_mesh, t_vh) += vertex_quadric(_mesh, s_vh);
 
-    _mesh.collapse(vp.heh_);
+    _mesh.collapse(vp->heh_);
     queue.pop();
 
     // Recompute priorities for the affected vertices and enqueue their updated priorities.
